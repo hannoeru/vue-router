@@ -31,6 +31,18 @@ describe('generateRouteRecordQuery', () => {
     importsMap = new ImportsMap()
   })
 
+  it('generates clearOnDefault opt-out', () => {
+    const node = new PrefixTree(DEFAULT_OPTIONS).insert('search', 'search.vue')
+    node.value.setEditOverride('params', {
+      query: { page: { parser: 'int', default: '1', clearOnDefault: false } },
+    })
+    expect(
+      generateRouteRecordQuery({ importsMap, node, paramParsersMap: new Map() })
+    ).toContain(
+      "new MatcherPatternQueryParam('page', 'page', 'value', PARAM_PARSER_INT, 1, false, false)"
+    )
+  })
+
   it('returns empty string for non-matchable nodes without query params', () => {
     const tree = new PrefixTree(DEFAULT_OPTIONS)
     const node = tree.insert('a/b', 'a/b.vue').parent! // non-matchable parent

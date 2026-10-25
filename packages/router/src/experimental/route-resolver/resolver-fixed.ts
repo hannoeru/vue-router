@@ -26,7 +26,10 @@ import type {
   EXPERIMENTAL_Resolver_Base,
 } from './resolver-abstract'
 import { NO_MATCH_LOCATION } from './resolver-abstract'
-import type { MatcherPatternQuery } from './matchers/matcher-pattern-query'
+import {
+  MatcherPatternQueryParam,
+  type MatcherPatternQuery,
+} from './matchers/matcher-pattern-query'
 import { warn } from '../../warning'
 import { assign } from '../../utils'
 
@@ -264,17 +267,26 @@ export function createFixedResolver<
       )
       let matched = buildMatched(record)
       // parser.set() can return non array values
-      const query = normalizeQuery(
-        assign(
-          {
-            ...currentLocation?.query,
-            ...normalizeQuery(to.query),
-          },
-          ...matched.flatMap(record =>
-            record.query?.map(query => query.build(params))
-          )
-        )
-      )
+      const query = normalizeQuery({
+        ...currentLocation?.query,
+        ...normalizeQuery(to.query),
+      })
+      for (const record of matched) {
+        for (const matcher of record.query ?? []) {
+          if (matcher instanceof MatcherPatternQueryParam) {
+            if (
+              to.query &&
+              Object.hasOwn(to.query, matcher.queryKey) &&
+              !Object.hasOwn(to.params ?? {}, matcher.paramName)
+            )
+              continue
+            if (Object.hasOwn(params, matcher.paramName)) {
+              delete query[matcher.queryKey]
+            }
+          }
+          assign(query, normalizeQuery(matcher.build(params)))
+        }
+      }
 
       const url: LocationNormalized = {
         // preserve other fields like `state` and `replace`

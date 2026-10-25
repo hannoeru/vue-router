@@ -736,9 +736,7 @@ export function experimental_createRouter(
       to,
       // FIXME: incompatible `matched` requires casting
       currentLocation ??
-        // relative string locations are always valid
-        // so this is more of a convenience default
-        (typeof to === 'string' && !to.startsWith('/')
+        (!isAbsoluteLocation(to as ResolverLocationAsRelative)
           ? currentRoute.value
           : undefined)
     )

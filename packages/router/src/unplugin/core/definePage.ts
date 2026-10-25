@@ -536,6 +536,12 @@ function extractParamOptions(
       ) {
         paramInfo.format = paramProp.value.value as 'value' | 'array'
       } else if (
+        includeFormat &&
+        paramProp.key.name === 'clearOnDefault' &&
+        paramProp.value.type === 'BooleanLiteral'
+      ) {
+        paramInfo.clearOnDefault = paramProp.value.value
+      } else if (
         paramProp.key.name === 'required' &&
         paramProp.value.type === 'BooleanLiteral'
       ) {

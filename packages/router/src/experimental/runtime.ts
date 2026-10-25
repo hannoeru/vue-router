@@ -353,6 +353,9 @@ export type DefinePageQueryParamOptions<
    * @default 'value'
    */
   format?: 'value' | 'array'
+
+  /** Omit values equal to the default. Defaults to true. */
+  clearOnDefault?: boolean
 }
 
 /**

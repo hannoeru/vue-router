@@ -149,6 +149,9 @@ class _TreeNodeValueBase {
           paramName,
           parser: config.parser || null,
           format: config.format || null,
+          ...(config.clearOnDefault === undefined
+            ? {}
+            : { clearOnDefault: config.clearOnDefault }),
           defaultValue: config.default,
           required: config.required,
         })
@@ -501,6 +504,7 @@ export interface TreeQueryParam {
   parser: string | null
 
   format: 'value' | 'array' | null
+  clearOnDefault?: boolean
 
   /**
    * Expression to be passed as is to the default value of the param.
