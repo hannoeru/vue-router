@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { DEFAULT_OPTIONS, resolveOptions } from '../options'
 import type { TreeNode } from '../core/tree'
 import { PrefixTree } from '../core/tree'
@@ -32,6 +33,77 @@ describe('EXPERIMENTAL_generateRouteParams', () => {
       ],
     ])
   }
+
+  it('keeps delimited array output separate from URL array input', () => {
+    const node = createTreeWithParam('search')
+    node.setCustomRouteBlock('search.vue', {
+      params: { query: { ids: { parser: 'ids', format: 'value' } } },
+    })
+    const parsers = makeParsersMap('ids', false)
+    parsers.get('ids')!.outputShape = 'array'
+    const fixture = readFileSync(
+      new URL('./array-parser.test-d.ts', import.meta.url),
+      'utf8'
+    )
+    for (const [name, isLoose] of [
+      ['Resolved', false],
+      ['Navigation', true],
+    ] as const) {
+      expect(fixture).toContain(
+        `type ${name} = ${EXPERIMENTAL_generateRouteParams(node.params, ['Param_ids'], isLoose, parsers).replaceAll("'ids'", 'ids')}`
+      )
+    }
+    expect(
+      EXPERIMENTAL_generateRouteParams(
+        node.params,
+        ['Param_ids'],
+        false,
+        parsers
+      )
+    ).toContain("'ids': Param_ids | undefined")
+    expect(
+      EXPERIMENTAL_generateRouteParams(
+        node.params,
+        ['Param_ids'],
+        true,
+        parsers
+      )
+    ).toContain("'ids'?: Param_ids | undefined")
+  })
+
+  it.each([{ required: true }, { defaultValue: '() => []' }])(
+    'removes undefined from guaranteed delimited array output: %j',
+    options => {
+      const params = [
+        {
+          type: 'query' as const,
+          paramName: 'ids',
+          parser: 'ids',
+          format: 'value' as const,
+          ...options,
+        },
+      ]
+      const parsers = makeParsersMap('ids', false)
+      parsers.get('ids')!.outputShape = 'array'
+      const fixture = readFileSync(
+        new URL('./array-parser.test-d.ts', import.meta.url),
+        'utf8'
+      )
+      for (const isLoose of [false, true]) {
+        const result = EXPERIMENTAL_generateRouteParams(
+          params,
+          ['Param_ids'],
+          isLoose,
+          parsers
+        )
+        expect(result).toContain('Exclude<Param_ids, undefined>')
+        const name = `${'required' in options ? 'Required' : 'Default'}${isLoose ? 'Navigation' : 'Resolved'}`
+        expect(fixture).toContain(
+          `type ${name} = ${result.replaceAll("'ids'", 'ids')}`
+        )
+      }
+    }
+  )
 
   describe.each([false, true])('hash options with raw parser: %s', isRaw => {
     it.each([

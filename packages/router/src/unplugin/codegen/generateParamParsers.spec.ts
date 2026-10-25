@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest'
 import {
+  addParamParserToMap,
   warnMissingParamParsers,
   collectMissingParamParsers,
   collectUsedParamParserNames,
@@ -983,6 +984,35 @@ const parsersTest = test.extend<{ parsersDir: string }>({
     await use(dir)
     rmSync(dir, { recursive: true, force: true })
   },
+})
+
+describe('delimited array parser metadata', () => {
+  parsersTest(
+    'detects direct and aliased array parser exports',
+    async ({ parsersDir }) => {
+      for (const [declaration, imported] of [
+        [
+          'export const parser = defineArrayParser(PARAM_PARSER_INT)',
+          'defineArrayParser',
+        ],
+        [
+          'const ids = array(PARAM_PARSER_INT); export { ids as parser }',
+          'defineArrayParser as array',
+        ],
+      ]) {
+        writeFileSync(
+          join(parsersDir, 'ids.ts'),
+          `import { ${imported}, PARAM_PARSER_INT } from 'vue-router/experimental'; ${declaration}`
+        )
+        const parsers: ParamParsersMap = new Map()
+        await addParamParserToMap('ids.ts', parsersDir, parsersDir, parsers)
+        expect(parsers.get('ids')).toMatchObject({
+          isRaw: false,
+          outputShape: 'array',
+        })
+      }
+    }
+  )
 })
 
 describe('scanParamParserFiles', () => {

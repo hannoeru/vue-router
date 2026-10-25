@@ -14,6 +14,8 @@ import {
 import type { ParamParser } from './types'
 import type { ParamParserTypeOf } from '../../../runtime'
 
+export const parser = defineArrayParser(PARAM_PARSER_FLOAT)
+
 it('infers enum literals and delimited array items', () => {
   const strings = defineEnumParser(['asc', 'desc'])
   expectTypeOf(strings.get('asc')).toEqualTypeOf<

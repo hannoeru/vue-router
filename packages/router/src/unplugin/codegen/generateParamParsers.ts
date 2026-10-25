@@ -35,6 +35,9 @@ export type ParamParsersMap = Map<
      * absent, the parser is treated as non-raw.
      */
     isRaw?: boolean
+
+    /** Output arrays are not necessarily repeated URL values. */
+    outputShape?: 'array'
   }
 >
 
@@ -68,16 +71,16 @@ const NATIVE_PARAM_PARSERS_TYPES = {
 const RAW_PARAM_PARSER_DEFINER = 'defineParamParserRaw'
 const PARAM_PARSER_MODULE = 'vue-router/experimental'
 
-function isInitRawCall(
+function isInitDefinerCall(
   declarator: VariableDeclaration['declarations'][number],
-  rawLocalName: string
+  localName: string
 ): boolean {
   const init = declarator.init
   return (
     !!init &&
     init.type === 'CallExpression' &&
     init.callee.type === 'Identifier' &&
-    init.callee.name === rawLocalName
+    init.callee.name === localName
   )
 }
 
@@ -95,6 +98,14 @@ export function isRawParamParserSource(
   source: string,
   filename: string = 'parser.ts'
 ): boolean {
+  return isParamParserDefinerSource(source, filename, RAW_PARAM_PARSER_DEFINER)
+}
+
+function isParamParserDefinerSource(
+  source: string,
+  filename: string,
+  definer: string
+): boolean {
   let ast: Program | undefined
   try {
     ast = babelParse(source, /\.tsx?$/.test(filename) ? 'ts' : 'js')
@@ -102,10 +113,7 @@ export function isRawParamParserSource(
     return false
   }
 
-  // find the local binding for `defineParamParserRaw` imported from
-  // `vue-router/experimental`. Aliased imports (`{ defineParamParserRaw as x }`)
-  // are supported, so we track the local name rather than the imported name.
-  let rawLocalName: string | null = null
+  let localName: string | null = null
   for (const node of ast.body) {
     if (node.type !== 'ImportDeclaration') continue
     const imp = node as ImportDeclaration
@@ -114,45 +122,37 @@ export function isRawParamParserSource(
       if (
         spec.type === 'ImportSpecifier' &&
         spec.imported.type === 'Identifier' &&
-        spec.imported.name === RAW_PARAM_PARSER_DEFINER
+        spec.imported.name === definer
       ) {
-        rawLocalName = spec.local.name
+        localName = spec.local.name
         break
       }
     }
-    if (rawLocalName) break
+    if (localName) break
   }
 
-  // no import of the raw definer means the file cannot define a raw parser
-  if (!rawLocalName) return false
+  if (!localName) return false
 
-  // collect top-level variables initialized via the raw definer so we can
-  // detect indirect exports like `const p = defineParamParserRaw(...); export { p as parser }`
-  const rawLocals = new Set<string>()
+  const parserLocals = new Set<string>()
   for (const node of ast.body) {
     if (node.type === 'VariableDeclaration') {
       for (const declarator of node.declarations) {
         if (
           declarator.id.type === 'Identifier' &&
-          isInitRawCall(declarator, rawLocalName)
+          isInitDefinerCall(declarator, localName)
         ) {
-          rawLocals.add(declarator.id.name)
+          parserLocals.add(declarator.id.name)
         }
       }
     }
   }
 
-  // walk export declarations looking for the `parser` export and check whether
-  // it ultimately comes from the raw definer (inline or via a tracked local)
-  let isRaw = false
+  let matched = false
   walkAST(ast, {
     enter(node) {
-      if (isRaw) return
+      if (matched) return
       if (node.type !== 'ExportNamedDeclaration') return
       const exportNode = node as ExportNamedDeclaration
-      // re-exports (`export { parser } from '...'`) can't be resolved locally:
-      // we'd need to follow the source module to know if it's raw. Warn so the
-      // user notices: runtime still works, but the generated types may not match.
       if (exportNode.source) {
         const reExportsParser = exportNode.specifiers.some(
           spec =>
@@ -160,7 +160,7 @@ export function isRawParamParserSource(
             spec.exported.type === 'Identifier' &&
             spec.exported.name === 'parser'
         )
-        if (reExportsParser) {
+        if (reExportsParser && definer === RAW_PARAM_PARSER_DEFINER) {
           diagnostics.VUE_ROUTER_B0018({
             filename,
             source: exportNode.source.value,
@@ -168,39 +168,36 @@ export function isRawParamParserSource(
         }
         return
       }
-      // inline form: `export const parser = defineParamParserRaw(...)`
       if (exportNode.declaration?.type === 'VariableDeclaration') {
         const decl = exportNode.declaration as VariableDeclaration
         for (const declarator of decl.declarations) {
           if (
             declarator.id.type === 'Identifier' &&
             declarator.id.name === 'parser' &&
-            isInitRawCall(declarator, rawLocalName)
+            isInitDefinerCall(declarator, localName)
           ) {
-            isRaw = true
+            matched = true
             return
           }
         }
         return
       }
-      // indirect form: `export { someLocal as parser }` where someLocal was
-      // initialized via the raw definer earlier in the file
       for (const spec of exportNode.specifiers) {
         if (
           spec.type === 'ExportSpecifier' &&
           spec.exported.type === 'Identifier' &&
           spec.exported.name === 'parser' &&
           spec.local.type === 'Identifier' &&
-          rawLocals.has(spec.local.name)
+          parserLocals.has(spec.local.name)
         ) {
-          isRaw = true
+          matched = true
           return
         }
       }
     },
   })
 
-  return isRaw
+  return matched
 }
 
 /**
@@ -227,6 +224,13 @@ export async function addParamParserToMap(
     absolutePath,
     relativePath: relative(dtsDir, absolutePath),
     isRaw: isRawParamParserSource(source, absolutePath),
+    ...(isParamParserDefinerSource(
+      source,
+      absolutePath,
+      'defineArrayParser'
+    ) && {
+      outputShape: 'array' as const,
+    }),
   })
 }
 

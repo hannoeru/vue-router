@@ -31,6 +31,31 @@ describe('generateRouteRecordQuery', () => {
     importsMap = new ImportsMap()
   })
 
+  it('keeps value URL format for delimited array output', () => {
+    const node = new PrefixTree(DEFAULT_OPTIONS).insert('search', 'search.vue')
+    node.value.setEditOverride('params', {
+      query: { ids: { parser: 'ids', format: 'value' } },
+    })
+    const parsers: ParamParsersMap = new Map([
+      [
+        'ids',
+        {
+          name: 'ids',
+          typeName: 'Param_ids',
+          relativePath: 'ids.ts',
+          absolutePath: '/ids.ts',
+          isRaw: false,
+          outputShape: 'array',
+        },
+      ],
+    ])
+    expect(
+      generateRouteRecordQuery({ importsMap, node, paramParsersMap: parsers })
+    ).toContain(
+      "new MatcherPatternQueryParam('ids', 'ids', 'value', _normalized_PARAM_PARSER__ids)"
+    )
+  })
+
   it('generates clearOnDefault opt-out', () => {
     const node = new PrefixTree(DEFAULT_OPTIONS).insert('search', 'search.vue')
     node.value.setEditOverride('params', {
