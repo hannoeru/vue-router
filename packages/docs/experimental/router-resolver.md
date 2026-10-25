@@ -94,6 +94,8 @@ router.replace({ params: { page: 2 } })
 
 Pass a second location to `router.resolve()` to use a different base. Named locations do not inherit the current params, query, or hash.
 
+An explicit `undefined` query value removes that key. This also applies to keys returned by a custom query matcher's `build()` method. The resolver merges matcher outputs in order, then removes undefined keys. Default clearing still omits declared params whose values equal their defaults.
+
 ### Navigation guard redirects
 
 Relative redirects returned by navigation guards use the **target route (`to`)** as their base. This also applies to initial navigation and back/forward navigation:

@@ -10,7 +10,10 @@ import type {
   MatcherQueryParams,
 } from './matchers/matcher-pattern'
 import { MatcherPatternPathStatic } from './matchers/matcher-pattern'
-import type { MatcherPatternQuery } from './matchers/matcher-pattern-query'
+import {
+  MatcherPatternQueryParam,
+  type MatcherPatternQuery,
+} from './matchers/matcher-pattern-query'
 import {
   EMPTY_PATH_PATTERN_MATCHER,
   USER_ID_PATH_PATTERN_MATCHER,
@@ -102,6 +105,92 @@ const OPTIONAL_NUMBER_QUERY_MATCHER: MatcherPatternQuery<{
     return count != null ? { count: String(count) } : ({} as EmptyParams)
   },
 }
+
+describe('custom query key deletion', () => {
+  const matcher: MatcherPatternQuery = {
+    match: query => ({ value: query.k?.[0] }),
+    build: params => ({ k: params.value as string | undefined }),
+  }
+
+  it('removes an inherited key when an explicit param is undefined', () => {
+    const resolver = createFixedResolver([
+      {
+        name: 'root',
+        path: new MatcherPatternPathStatic('/'),
+        query: [matcher],
+      },
+    ])
+    const current = resolver.resolve('/?k=old&keep=yes')
+    const result = resolver.resolve({ params: { value: undefined } }, current)
+    expect(result.fullPath).toBe('/?keep=yes')
+    expect(result.params).toEqual({ value: undefined })
+  })
+
+  it.each([
+    [undefined, '/?keep=yes', { keep: ['yes'] }],
+    [[], '/?keep=yes', { k: [], keep: ['yes'] }],
+    [[null], '/?k&keep=yes', { k: [null], keep: ['yes'] }],
+  ] as const)(
+    'merges explicit raw query value %j before normalization',
+    (value, fullPath, query) => {
+      const resolver = createFixedResolver([
+        { name: 'root', path: new MatcherPatternPathStatic('/') },
+      ])
+      const current = resolver.resolve('/?k=old&keep=yes')
+      const result = resolver.resolve(
+        { query: { k: value as undefined | null[] } },
+        current
+      )
+      expect(result.fullPath).toBe(fullPath)
+      expect(result.query).toEqual(query)
+    }
+  )
+
+  it('lets a later matcher remove a key built by an earlier matcher', () => {
+    const resolver = createFixedResolver([
+      {
+        name: 'root',
+        path: new MatcherPatternPathStatic('/'),
+        query: [
+          { match: () => ({}), build: () => ({ k: 'old' }) },
+          { match: () => ({}), build: () => ({ k: undefined }) },
+        ],
+      },
+    ])
+    expect(resolver.resolve({ name: 'root', params: {} }).fullPath).toBe('/')
+  })
+
+  it.each([true, false])(
+    'keeps default-clearing behavior with clearOnDefault=%s',
+    clearOnDefault => {
+      const resolver = createFixedResolver([
+        {
+          name: 'root',
+          path: new MatcherPatternPathStatic('/'),
+          query: [
+            matcher,
+            new MatcherPatternQueryParam(
+              'page',
+              'p',
+              'value',
+              {},
+              '1',
+              false,
+              clearOnDefault
+            ),
+          ],
+        },
+      ])
+      const current = resolver.resolve('/?k=old&p=2')
+      const result = resolver.resolve(
+        { params: { value: undefined, page: '1' } },
+        current
+      )
+      expect(result.fullPath).toBe(clearOnDefault ? '/' : '/?p=1')
+      expect(result.params).toEqual({ value: undefined, page: '1' })
+    }
+  )
+})
 
 describe('fixed resolver', () => {
   describe('new matchers', () => {

@@ -267,10 +267,10 @@ export function createFixedResolver<
       )
       let matched = buildMatched(record)
       // parser.set() can return non array values
-      const query = normalizeQuery({
+      const queryRaw = {
         ...currentLocation?.query,
-        ...normalizeQuery(to.query),
-      })
+        ...to.query,
+      }
       for (const record of matched) {
         for (const matcher of record.query ?? []) {
           if (matcher instanceof MatcherPatternQueryParam) {
@@ -281,12 +281,13 @@ export function createFixedResolver<
             )
               continue
             if (Object.hasOwn(params, matcher.paramName)) {
-              delete query[matcher.queryKey]
+              delete queryRaw[matcher.queryKey]
             }
           }
-          assign(query, normalizeQuery(matcher.build(params)))
+          assign(queryRaw, matcher.build(params))
         }
       }
+      const query = normalizeQuery(queryRaw)
 
       const url: LocationNormalized = {
         // preserve other fields like `state` and `replace`
