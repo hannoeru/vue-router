@@ -127,6 +127,10 @@ export function defineArrayParser<T>(
   separator = ','
 ): ParamParserWithGetSet<T[] | undefined, MatcherQueryParamsValue> {
   if (!separator) throw new TypeError('Array separator must not be empty')
+  for (let index = 1; index < separator.length; index++) {
+    if (separator.startsWith(separator.slice(index)))
+      throw new TypeError('Array separator must not overlap itself')
+  }
   return {
     get(value) {
       if (typeof value !== 'string') return undefined

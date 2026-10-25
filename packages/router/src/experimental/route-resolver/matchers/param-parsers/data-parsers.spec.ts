@@ -125,6 +125,24 @@ describe('data parsers', () => {
     expect(strings.set(['b,c'])).toBeUndefined()
   })
 
+  it.each(['aa', 'aba', '::'])(
+    'rejects self-overlapping separator %s at definition time',
+    separator => {
+      expect(() =>
+        defineArrayParser(defineEnumParser(['a', 'b']), separator)
+      ).toThrow(TypeError)
+    }
+  )
+
+  it.each(['ab', '->', '😀'])(
+    'round trips arrays with unbordered separator %s',
+    separator => {
+      const parser = defineArrayParser(defineEnumParser(['a', 'b']), separator)
+      expect(parser.get(parser.set(['a', 'b']))).toEqual(['a', 'b'])
+      expect(parser.get(parser.set([]))).toEqual([])
+    }
+  )
+
   it('rejects an ambiguous single empty item but keeps empty arrays', () => {
     const parser = defineArrayParser(defineEnumParser(['', 'a']))
     expect(parser.set([''])).toBeUndefined()

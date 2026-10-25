@@ -82,7 +82,7 @@ const filter = defineJsonParser(value =>
 )
 ```
 
-`defineJsonParser` also accepts a synchronous Standard Schema. It serializes values with `JSON.stringify`. The array combinator accepts a separator as its second argument. Values that contain the separator cannot round trip and are rejected. A single empty-string item is also rejected because its encoding is the same as an empty array.
+`defineJsonParser` also accepts a synchronous Standard Schema. It serializes values with `JSON.stringify`. The array combinator accepts a separator as its second argument. The separator must be nonempty and must not overlap itself. For example, `aa`, `aba`, and `::` are rejected when the parser is defined. Unambiguous multi-character separators such as `ab` and `->` remain supported. Values that contain the separator cannot round trip and are rejected. A single empty-string item is also rejected because its encoding is the same as an empty array.
 
 A parser can provide `eq(a, b)` for default comparison and [query-state](./query-state.md) identity checks. Without `eq`, the router compares values structurally.
 
