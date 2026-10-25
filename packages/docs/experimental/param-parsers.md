@@ -84,7 +84,9 @@ const filter = defineJsonParser(value =>
 
 `defineJsonParser` also accepts a synchronous Standard Schema. It serializes values with `JSON.stringify`. The array combinator accepts a separator as its second argument. The separator must be nonempty and must not overlap itself. For example, `aa`, `aba`, and `::` are rejected when the parser is defined. Unambiguous multi-character separators such as `ab` and `->` remain supported. Values that contain the separator cannot round trip and are rejected. A single empty-string item is also rejected because its encoding is the same as an empty array.
 
-A parser can provide `eq(a, b)` for default comparison and [query-state](./query-state.md) identity checks. Without `eq`, the router compares values structurally.
+A parser can provide `eq(a, b)` for default comparison and [query-state](./query-state.md) identity checks. The default comparison uses `dequal/lite` for primitives, `NaN`, arrays, plain objects, and `Date`. Provide `eq` for `Map`, `Set`, typed arrays, and other rich custom outputs.
+
+The unvalidated `json` parser returns JSON values. A JSON validator can transform them into richer values, so its output is not limited to JSON. Outputs outside the default comparison's supported types need an explicit `eq`. Use a custom parser if `JSON.stringify` cannot serialize the result correctly.
 
 ```vue
 <!-- src/pages/users/[id=int].vue -->
@@ -159,6 +161,7 @@ export const parser = defineParamParserRaw<Set<string>>({
     )
   },
   set: value => [...value],
+  eq: (a, b) => a.size === b.size && [...a].every(value => b.has(value)),
 })
 ```
 
@@ -173,8 +176,8 @@ export const parser = defineParamParserRaw<Set<string>>({
       Array.isArray(value) ? value.filter(v => v != null) : [value]
     )
   },
-  // empty Set → [] → param omitted, single → ['one'], many → ['a', 'b']
   set: value => [...value],
+  eq: (a, b) => a.size === b.size && [...a].every(value => b.has(value)),
 })
 ```
 

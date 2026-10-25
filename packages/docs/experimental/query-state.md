@@ -126,7 +126,7 @@ If both debounce and throttle are set, a write waits until both limits permit it
 
 If two composable calls write the same param with different wait settings, the shortest remaining wait wins. Each call's latest write resets its own debounce deadline. A later per-call debounce can postpone an earlier write from the same composable in the same tick. The last written value is used, regardless of which deadline triggers the batch.
 
-State is shared per router. Two components that bind the same route and param see the same optimistic value before the URL changes. Reads use parsed `route.params` with a shared optimistic overlay. Arrays and objects use structural equality unless the parser supplies `eq`; equal values keep stable computed identities.
+State is shared per router. Two components that bind the same route and param see the same optimistic value before the URL changes. Reads use parsed `route.params` with a shared optimistic overlay. The default structural comparison supports primitives, `NaN`, `Date`, arrays, and plain objects. Values that contain `Map`, `Set`, typed arrays, or other rich types need a parser `eq` function. Equal values keep stable computed identities.
 
 A partial update keeps the current path, hash, other parsed params, and undeclared raw query keys. Declared query fields are serialized through their route matchers, including clear-on-default behavior.
 
