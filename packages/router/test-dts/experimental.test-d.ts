@@ -8,9 +8,17 @@ import {
   normalizeRouteRecord,
   useScrollRestoration,
   MatcherPatternPathStatic,
+  useQueryParam,
+  useQueryParams,
 } from 'vue-router/experimental'
-import { useRouter } from 'vue-router'
-import { defineComponent, ref, type FunctionalComponent } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import {
+  defineComponent,
+  ref,
+  toRefs,
+  type Ref,
+  type FunctionalComponent,
+} from 'vue'
 
 // Structural records allow parsed params beyond the classic string constraint.
 type ExperimentalRouteRecord<
@@ -27,6 +35,11 @@ type ExperimentalRouteRecord<
 }
 
 type RouteNamedMap = {
+  search: ExperimentalRouteRecord<
+    'search',
+    { page?: number; tags?: string[]; date?: Date },
+    { page: number; tags: string[]; date: Date | undefined }
+  >
   'optional-number': ExperimentalRouteRecord<
     'optional-number',
     { id: number | null },
@@ -76,6 +89,36 @@ declare module 'vue-router' {
     _RouteFileInfoMap: RouteFileInfoMap
   }
 }
+
+describe('query state inference from the public package', () => {
+  it('infers parsed values and rejects invalid names, keys and values', () => {
+    const page = useQueryParam('search', 'page')
+    expectTypeOf(page).toExtend<Ref<number>>()
+    expectTypeOf(page.value).toEqualTypeOf<number>()
+    const [value, controls] = page
+    expectTypeOf(value.value).toEqualTypeOf<number>()
+    expectTypeOf(controls.update(2)).toEqualTypeOf<Promise<void>>()
+    const tags = useQueryParam('search', 'tags')
+    expectTypeOf(tags.value).toEqualTypeOf<string[]>()
+    const date = useQueryParam('search', 'date')
+    expectTypeOf(date.value).toEqualTypeOf<Date | undefined>()
+    const route = useRoute('search')
+    expectTypeOf(page.value).toEqualTypeOf<typeof route.params.page>()
+    const state = useQueryParams('search')
+    expectTypeOf(toRefs(state).tags.value).toEqualTypeOf<string[]>()
+    state.$patch({ page: 2 })
+    // @ts-expect-error: parsed page is a number
+    page.value = '2'
+    // @ts-expect-error: update accepts parsed values
+    controls.update('2')
+    // @ts-expect-error: unknown route
+    useQueryParam('missing', 'page')
+    // @ts-expect-error: unknown param
+    useQueryParam('search', 'missing')
+    // @ts-expect-error: array elements are strings
+    state.$patch({ tags: [1] })
+  })
+})
 
 describe('Router conditional via TypesConfig', () => {
   const router = useRouter()

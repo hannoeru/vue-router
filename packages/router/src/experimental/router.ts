@@ -93,6 +93,10 @@ import type {
 } from './route-props'
 import type { RecordName } from './route-resolver/resolver-abstract'
 import type { RouteLocationNormalizedLoadedGeneric } from '../typed-routes'
+import {
+  QUERY_STATE_SCROLL,
+  type QueryStateNavigation,
+} from './query-state-internals'
 
 /**
  * resolve, reject arguments of Promise constructor
@@ -649,6 +653,12 @@ export interface EXPERIMENTAL_Router
    */
   readonly options: EXPERIMENTAL_RouterOptions
 
+  /** @internal */
+  _beforeQueryStateNavigation?: () => Promise<void>
+
+  /** @internal */
+  _cancelQueryStateNavigation?: () => void
+
   /**
    * Dev only method to replace the resolver used by the router. Used during HMR
    *
@@ -779,10 +789,19 @@ export function experimental_createRouter(
     }
   }
 
-  const push = (...args: _resolveArgs) => pushWithRedirect(resolve(...args))
+  const push = (...args: _resolveArgs) => {
+    const flushed = router._beforeQueryStateNavigation?.()
+    return flushed
+      ? flushed.then(() => pushWithRedirect(resolve(...args)))
+      : pushWithRedirect(resolve(...args))
+  }
 
-  const replace = (...args: _resolveArgs) =>
-    pushWithRedirect(resolve(...args), true)
+  const replace = (...args: _resolveArgs) => {
+    const flushed = router._beforeQueryStateNavigation?.()
+    return flushed
+      ? flushed.then(() => pushWithRedirect(resolve(...args), true))
+      : pushWithRedirect(resolve(...args), true)
+  }
 
   function handleRedirectRecord(
     to: RouteLocation,
@@ -1151,6 +1170,7 @@ export function experimental_createRouter(
     if (removeHistoryListener) return
     removeHistoryListener = routerHistory.listen((to, _from, info) => {
       if (!router.listening) return
+      router._cancelQueryStateNavigation?.()
       // cannot be a redirect route because it was in history
       const toLocation = resolve(to) as RouteLocationNormalized
 
@@ -1365,7 +1385,12 @@ export function experimental_createRouter(
   ): // the return is not meant to be used
   Promise<unknown> {
     const { scrollBehavior } = options
-    if (!isBrowser || !scrollBehavior) return Promise.resolve()
+    if (
+      !isBrowser ||
+      !scrollBehavior ||
+      (to as QueryStateNavigation)[QUERY_STATE_SCROLL] === false
+    )
+      return Promise.resolve()
 
     const scrollPosition: _ScrollPositionNormalized | null =
       (!isPush && getSavedScrollPosition(getScrollKey(to.fullPath, 0))) ||
@@ -1386,7 +1411,14 @@ export function experimental_createRouter(
     )
   }
 
-  const go = (delta: number) => routerHistory.go(delta)
+  const go = (delta: number) => {
+    const flushed = router._beforeQueryStateNavigation?.()
+    if (flushed) {
+      flushed.then(() => routerHistory.go(delta)).catch(noop)
+    } else {
+      routerHistory.go(delta)
+    }
+  }
 
   let started: boolean | undefined
   const installedApps = new Set<App>()

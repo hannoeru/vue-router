@@ -74,6 +74,15 @@ export {
 
 export { miss } from './route-resolver/matchers/errors'
 
+export {
+  useQueryParam,
+  useQueryParams,
+  type QueryStateOptions,
+  type QueryParamControls,
+  type QueryParamRef,
+  type QueryParamsState,
+} from './query-state'
+
 // Runtime exports (definePage macro)
 export {
   definePage,
