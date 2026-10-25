@@ -85,15 +85,14 @@ Relative string locations passed to `router.push()`, `router.replace()`, or `rou
 router.push('add') // /users/add
 ```
 
-Relative object locations need an explicit current location. Resolve them first, then navigate:
+Relative object locations also use the current route. Partial params keep the other current params, query keys, and hash:
 
 ```ts
-const target = router.resolve(
-  { query: { page: ['2'] } },
-  router.currentRoute.value
-)
-router.push(target)
+router.push({ params: { page: 7 } })
+router.replace({ params: { page: 2 } })
 ```
+
+Pass a second location to `router.resolve()` to use a different base. Named locations do not inherit the current params, query, or hash.
 
 ### Navigation guard redirects
 

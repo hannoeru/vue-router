@@ -232,6 +232,10 @@ function sidebarFileBasedRouting(): SidebarGroup {
         text: 'Param Parsers (experimental)',
         link: '/experimental/param-parsers',
       },
+      {
+        text: 'Query state (experimental)',
+        link: '/experimental/query-state',
+      },
     ],
   }
 }

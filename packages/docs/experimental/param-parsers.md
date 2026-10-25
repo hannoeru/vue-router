@@ -45,13 +45,46 @@ export default defineConfig({
 
 ## Built-in parsers
 
-| Name     | Path | Query | Hash | Type      |
-| -------- | :--: | :---: | :--: | --------- |
-| `int`    |  ✅  |  ✅   |  ✅  | `number`  |
-| `bool`   |  ✅  |  ✅   |  ✅  | `boolean` |
-| `string` |  ✅  |  ✅   |  ✅  | `string`  |
+| Name        | Path | Query | Hash | Type      |
+| ----------- | :--: | :---: | :--: | --------- |
+| `int`       |  ✅  |  ✅   |  ✅  | `number`  |
+| `bool`      |  ✅  |  ✅   |  ✅  | `boolean` |
+| `string`    |  ✅  |  ✅   |  ✅  | `string`  |
+| `float`     |  ✅  |  ✅   |  ✅  | `number`  |
+| `index`     |  ✅  |  ✅   |  ✅  | `number`  |
+| `hex`       |  ✅  |  ✅   |  ✅  | `number`  |
+| `date`      |  ✅  |  ✅   |  ✅  | `Date`    |
+| `datetime`  |  ✅  |  ✅   |  ✅  | `Date`    |
+| `timestamp` |  ✅  |  ✅   |  ✅  | `Date`    |
+| `json`      |  ✅  |  ✅   |  ✅  | `unknown` |
 
 `string` is the default param parser and does nothing. It's equivalent to not setting the parser.
+
+`index` uses one-based URL values and zero-based state. `hex` writes lowercase hexadecimal without a prefix. `date` uses UTC `YYYY-MM-DD`. `datetime` reads ISO datetimes with a timezone and writes UTC ISO datetimes. `timestamp` uses milliseconds since the Unix epoch.
+
+Invalid input from the built-in parsers returns `undefined`, so query defaults apply. Required query params reject invalid input. A bare query key can still have a parser-specific meaning, such as `true` for `bool`.
+
+The experimental exports also include parser combinators:
+
+```ts
+import {
+  defineEnumParser,
+  defineArrayParser,
+  defineJsonParser,
+  PARAM_PARSER_INT,
+} from 'vue-router/experimental'
+
+const sort = defineEnumParser(['asc', 'desc'])
+const size = defineEnumParser([10, 25, 50])
+const ids = defineArrayParser(PARAM_PARSER_INT) // ?ids=1,2,3
+const filter = defineJsonParser(value =>
+  typeof value === 'object' && value !== null ? value : undefined
+)
+```
+
+`defineJsonParser` also accepts a synchronous Standard Schema. It serializes values with `JSON.stringify`. The array combinator accepts a separator as its second argument. Values that contain the separator cannot round trip and are rejected. A single empty-string item is also rejected because its encoding is the same as an empty array.
+
+A parser can provide `eq(a, b)` for default comparison and [query-state](./query-state.md) identity checks. Without `eq`, the router compares values structurally.
 
 ```vue
 <!-- src/pages/users/[id=int].vue -->
@@ -264,6 +297,7 @@ Options per query field:
 - `format`: `'value'` (single, takes the **last** value if the URL has several) or `'array'`.
 - `default`: value or `() => value` used when the param is missing or parsing fails and it's not required.
 - `required`: rejects a match if the param is absent (instead of using `default`).
+- `clearOnDefault`: omits values equal to the default when building a URL. Defaults to `true`. Set it to `false` to keep them.
 
 ### Hash params
 
