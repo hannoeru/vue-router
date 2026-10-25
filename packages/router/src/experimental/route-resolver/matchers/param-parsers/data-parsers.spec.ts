@@ -125,6 +125,13 @@ describe('data parsers', () => {
     expect(strings.set(['b,c'])).toBeUndefined()
   })
 
+  it('rejects an ambiguous single empty item but keeps empty arrays', () => {
+    const parser = defineArrayParser(defineEnumParser(['', 'a']))
+    expect(parser.set([''])).toBeUndefined()
+    expect(parser.get(parser.set([]))).toEqual([])
+    expect(parser.get(parser.set(['', 'a']))).toEqual(['', 'a'])
+  })
+
   it('rejects the whole repeated value when one item is invalid', () => {
     const repeated = new MatcherPatternQueryParam(
       'values',

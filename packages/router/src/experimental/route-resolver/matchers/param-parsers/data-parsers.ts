@@ -148,7 +148,11 @@ export function defineArrayParser<T>(
       const result: string[] = []
       for (const item of value) {
         const serialized = parser.set(item)
-        if (typeof serialized !== 'string' || serialized.includes(separator))
+        if (
+          typeof serialized !== 'string' ||
+          serialized.includes(separator) ||
+          (serialized === '' && value.length === 1)
+        )
           return undefined
         result.push(serialized)
       }

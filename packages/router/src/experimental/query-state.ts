@@ -277,10 +277,8 @@ function createEngine(router: EXPERIMENTAL_Router) {
     timer = undefined
     if (running) {
       await running
-      if (queue.size) {
-        if (force) return flush()
-        schedule()
-      }
+      if (force) return flush()
+      if (queue.size) schedule()
       return
     }
     if (!queue.size) return

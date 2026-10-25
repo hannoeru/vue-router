@@ -426,6 +426,38 @@ it('suppresses the legacy scroll callback by default and permits it on request',
   expect(scroll).toHaveBeenCalledTimes(1)
 })
 
+it('drains concurrent forced flush callers before external navigation', async () => {
+  const { router, use } = await setup()
+  const [, control] = use(() => useQueryParam('search', 'q', { debounce: 500 }))
+  let release!: () => void
+  const entered = new Promise<void>(resolve => {
+    const remove = router.beforeEach(() => {
+      remove()
+      resolve()
+      return new Promise<void>(resolve => {
+        release = resolve
+      })
+    })
+  })
+  const seen: [string, number | undefined][] = []
+  router.afterEach((to, _from, failure) =>
+    seen.push([to.fullPath, failure?.type])
+  )
+  const first = control.update('first')
+  const forced = control.flush()
+  await entered
+  const second = control.update('second')
+  const external = router.push('/other')
+  release()
+  await Promise.all([first, forced, second, external])
+  expect(seen).toEqual([
+    ['/search/7?other=keep&q=first#anchor', undefined],
+    ['/search/7?other=keep&q=second#anchor', undefined],
+    ['/other', undefined],
+  ])
+  expect(router.currentRoute.value.fullPath).toBe('/other')
+})
+
 it('flushes queued writes before an external push during an in-flight query write', async () => {
   const { router, use } = await setup()
   const [, control] = use(() => useQueryParam('search', 'q'))
