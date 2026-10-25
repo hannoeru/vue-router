@@ -92,6 +92,48 @@ describe('data parsers', () => {
     }
   })
 
+  it.each([
+    '+010000-01-01',
+    '-000001-12-31',
+    '+010000-02-29',
+    '+275760-09-13',
+    '-271821-04-20',
+    '0000-01-01',
+  ])('round trips extended ISO date %s', input => {
+    const date = new Date(`${input}T00:00:00.000Z`)
+    expect(PARAM_PARSER_DATE.get(input)).toEqual(date)
+    expect(PARAM_PARSER_DATE.set(date)).toBe(input)
+    expect(PARAM_PARSER_DATE.get(PARAM_PARSER_DATE.set(date))).toEqual(date)
+    expect(PARAM_PARSER_DATETIME.get(PARAM_PARSER_DATETIME.set(date))).toEqual(
+      date
+    )
+  })
+
+  it.each([
+    ['9999-12-31T23:00:00-01:00', '+010000-01-01T00:00:00.000Z'],
+    ['0000-01-01T00:00:00+01:00', '-000001-12-31T23:00:00.000Z'],
+    ['+010000-01-01T00:00:00+01:00', '9999-12-31T23:00:00.000Z'],
+    ['-000001-12-31T23:00:00-01:00', '0000-01-01T00:00:00.000Z'],
+  ])(
+    'round trips timezone input across the year boundary: %s',
+    (input, utc) => {
+      const date = new Date(utc)
+      expect(PARAM_PARSER_DATETIME.get(input)).toEqual(date)
+      expect(
+        PARAM_PARSER_DATETIME.get(PARAM_PARSER_DATETIME.set(date))
+      ).toEqual(date)
+      expect(PARAM_PARSER_DATETIME.get([input])).toEqual([date])
+    }
+  )
+
+  it.each(['+010001-02-29', '-000001-02-29', '-000000-01-01', '+999999-01-01'])(
+    'rejects invalid extended ISO date %s',
+    input => {
+      expect(PARAM_PARSER_DATE.get(input)).toBeUndefined()
+      expect(PARAM_PARSER_DATETIME.get(`${input}T00:00:00Z`)).toBeUndefined()
+    }
+  )
+
   it('handles repeated builtin values', () => {
     expect(PARAM_PARSER_FLOAT.get(['1.5', null, '2.5'])).toEqual([1.5, 2.5])
     expect(PARAM_PARSER_INDEX.set([0, 1])).toEqual(['1', '2'])

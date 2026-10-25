@@ -70,29 +70,27 @@ export const PARAM_PARSER_HEX = defineBuiltinParser<number>(
 )
 
 function parseDate(value: string): Date | undefined {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined
+  if (!/^(?:\d{4}|[+-]\d{6})-\d{2}-\d{2}$/.test(value)) return undefined
   const date = new Date(value)
   return Number.isFinite(date.getTime()) &&
-    date.toISOString().slice(0, 10) === value
+    date.toISOString().split('T')[0] === value
     ? date
     : undefined
 }
 
 export const PARAM_PARSER_DATE = defineBuiltinParser<Date>(parseDate, value =>
   Number.isFinite(value.getTime())
-    ? value.toISOString().slice(0, 10)
+    ? value.toISOString().split('T')[0]
     : undefined
 )
 
 export const PARAM_PARSER_DATETIME = defineBuiltinParser<Date>(
   value => {
-    if (
-      !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(
+    const match =
+      /^((?:\d{4}|[+-]\d{6})-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(
         value
-      ) ||
-      !parseDate(value.slice(0, 10))
-    )
-      return undefined
+      )
+    if (!match || !parseDate(match[1]!)) return undefined
     const date = new Date(value)
     return Number.isFinite(date.getTime()) ? date : undefined
   },

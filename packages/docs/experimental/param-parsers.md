@@ -60,7 +60,7 @@ export default defineConfig({
 
 `string` is the default param parser and does nothing. It's equivalent to not setting the parser.
 
-`index` uses one-based URL values and zero-based state. `hex` writes lowercase hexadecimal without a prefix. `date` uses UTC `YYYY-MM-DD`. `datetime` reads ISO datetimes with a timezone and writes UTC ISO datetimes. `timestamp` uses milliseconds since the Unix epoch.
+`index` uses one-based URL values and zero-based state. `hex` writes lowercase hexadecimal without a prefix. `date` uses UTC `YYYY-MM-DD`. `datetime` reads ISO datetimes with a timezone and writes UTC ISO datetimes. `timestamp` uses milliseconds since the Unix epoch. The date parsers also support canonical signed six-digit ISO years, such as `+010000` and `-000001`.
 
 Invalid input from the built-in parsers returns `undefined`, so query defaults apply. Required query params reject invalid input. A bare query key can still have a parser-specific meaning, such as `true` for `bool`.
 
