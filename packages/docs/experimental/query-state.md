@@ -120,6 +120,8 @@ Call these composables in component setup or an active effect scope. Each call h
 
 Programmatic `router.push()`, `replace()`, `go()`, `back()`, and `forward()` flush queued query state before starting the requested navigation. This prevents a delayed update from cancelling the destination navigation.
 
+During a query-state navigation, redirect from a guard by returning a route location. Async guards can await other work before they return that location. Do not await `router.push()`, `router.replace()`, or query-state `flush()` from that guard. These operations wait for the query-state navigation that is running the guard and cannot complete until the guard returns.
+
 ::: warning Native browser history traversal
 The browser's Back or Forward button moves history before the router receives the pop event. Query state cannot safely write the previous entry at that point. Pending queued writes are **cancelled**, their promises reject with an error, and their optimistic values and timer are cleared. They are not flushed. The destination navigation is not replaced by a delayed query update. Use the router's `back()` or `forward()` method if pending writes must be flushed first.
 :::

@@ -291,7 +291,11 @@ function createEngine(router: EXPERIMENTAL_Router) {
     }
   }
 
-  return { overlay, write, flush }
+  function flushBeforeLeave() {
+    return running ? undefined : flush()
+  }
+
+  return { overlay, write, flush, flushBeforeLeave }
 }
 
 function useEngine() {
@@ -306,7 +310,7 @@ function scoped<T>(engine: ReturnType<typeof createEngine>, setup: () => T): T {
   const scope = effectScope()
   const value = scope.run(setup)!
   if (getCurrentInstance() && inject(matchedRouteKey, undefined)?.value) {
-    onBeforeRouteLeave(() => engine.flush())
+    onBeforeRouteLeave(engine.flushBeforeLeave)
   }
   if (parent) {
     onScopeDispose(() => {

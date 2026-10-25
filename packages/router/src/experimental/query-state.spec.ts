@@ -517,6 +517,71 @@ it('keeps the composable clearOnDefault policy during reset', async () => {
   expect(router.currentRoute.value.query.p).toBeUndefined()
 })
 
+it.each(['beforeEach', 'beforeResolve'] as const)(
+  'settles a query write redirected by %s from a mounted route',
+  async guard => {
+    const { router } = await setup()
+    let controls!: ReturnType<typeof useQueryParam>[1]
+    router.getRoutes()[0].components!.default = defineComponent({
+      setup() {
+        ;[, controls] = useQueryParam('search', 'q')
+        return () => h('main', 'Search')
+      },
+    })
+    const wrapper = mount(
+      defineComponent(() => () => h(RouterView)),
+      {
+        global: { plugins: [router] },
+      }
+    )
+    cleanups.push(() => wrapper.unmount())
+    router[guard](to => (to.query.q?.[0] === 'redirect' ? '/other' : undefined))
+    await Promise.all([controls.update('redirect'), controls.flush()])
+    expect(router.currentRoute.value.fullPath).toBe('/other')
+    expect(controls.pending.value).toBe(false)
+  },
+  1000
+)
+
+it('settles later queued writes after an async guard redirects a mounted query write', async () => {
+  const { router } = await setup()
+  let controls!: ReturnType<typeof useQueryParam>[1]
+  router.getRoutes()[0].components!.default = defineComponent({
+    setup() {
+      ;[, controls] = useQueryParam('search', 'q')
+      return () => h('main', 'Search')
+    },
+  })
+  const wrapper = mount(
+    defineComponent(() => () => h(RouterView)),
+    { global: { plugins: [router] } }
+  )
+  cleanups.push(() => wrapper.unmount())
+  let release!: () => void
+  const entered = new Promise<void>(resolve => {
+    router.beforeEach(async to => {
+      if (to.query.q?.[0] === 'redirect') {
+        resolve()
+        await new Promise<void>(resolve => {
+          release = resolve
+        })
+        return '/other'
+      }
+      return undefined
+    })
+  })
+  const first = controls.update('redirect')
+  const drain = controls.flush()
+  await entered
+  const second = expect(controls.update('late')).rejects.toThrow(
+    'route changed'
+  )
+  release()
+  await Promise.all([first, drain, second])
+  expect(router.currentRoute.value.fullPath).toBe('/other')
+  expect(controls.pending.value).toBe(false)
+}, 1000)
+
 it('flushes a mounted route component before leave and removes its guard on unmount', async () => {
   const { router } = await setup()
   let update!: (value: string) => Promise<void>
