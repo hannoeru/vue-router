@@ -259,6 +259,33 @@ describe('data parsers', () => {
     expect(number.match('')).toEqual({ value: 42 })
   })
 
+  it('preserves valid JSON null from function validation and rejects undefined', () => {
+    const nullOnly = defineJsonParser(value =>
+      value === null ? null : undefined
+    )
+    expect(nullOnly.get('null')).toBeNull()
+    expect(nullOnly.get(nullOnly.set(null))).toBeNull()
+    expect(nullOnly.get('0')).toBeUndefined()
+    expect(nullOnly.get(undefined)).toBeUndefined()
+    expect(nullOnly.set(undefined)).toBeUndefined()
+    const parser = defineJsonParser(value =>
+      value === null || typeof value === 'number' ? value : undefined
+    )
+    const query = new MatcherPatternQueryParam(
+      'value',
+      'v',
+      'value',
+      parser,
+      42
+    )
+    expect(query.match({ v: ['null'] })).toEqual({ value: null })
+    expect(query.match({ v: ['"invalid"'] })).toEqual({ value: 42 })
+    expect(query.match({})).toEqual({ value: 42 })
+    const hash = new MatcherPatternHashParam('value', parser, 42)
+    expect(hash.match('#null')).toEqual({ value: null })
+    expect(hash.match('#"invalid"')).toEqual({ value: 42 })
+  })
+
   it('validates JSON with a function or Standard Schema', () => {
     const parser = defineJsonParser(value =>
       typeof value === 'number' ? value : undefined

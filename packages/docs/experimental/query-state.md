@@ -30,6 +30,20 @@ definePage({
 
 With a fixed resolver, use `MatcherPatternQueryParam` in the record's `query` array. The composable key is the **parsed param name**, not its URL key. For example, a matcher with param name `page` and URL key `p` is accessed with `useQueryParam(name, 'page')`.
 
+## JSON validation
+
+`defineJsonParser()` passes parsed JSON to its validator. Return the accepted value, including `null`, to keep it. Return `undefined` for invalid input so the query matcher's default applies.
+
+```ts
+import { defineJsonParser } from 'vue-router/experimental'
+
+const nullableNumber = defineJsonParser(value =>
+  value === null || typeof value === 'number' ? value : undefined
+)
+```
+
+JSON text `null` is a valid value for this parser. A missing query field or an invalid value uses the matcher's default instead. An accepted `null` serializes as JSON text `null`, unless default clearing omits it.
+
 ## One query param
 
 The result is a writable ref. Use it directly with `v-model`:

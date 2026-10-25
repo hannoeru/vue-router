@@ -180,7 +180,7 @@ export function defineJsonParser<T = unknown>(
       try {
         const parsed: unknown = JSON.parse(value)
         if (!validate) return parsed as T
-        if (typeof validate === 'function') return validate(parsed) ?? undefined
+        if (typeof validate === 'function') return validate(parsed)
         const result = validate['~standard'].validate(parsed)
         if (result instanceof Promise)
           throw new TypeError(

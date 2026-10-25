@@ -46,6 +46,15 @@ it('infers JSON function and Standard Schema output', () => {
   schema.set({ count: '1' })
 })
 
+it('accepts valid JSON null and uses undefined for invalid input', () => {
+  const parser = defineJsonParser(value => (value === null ? null : undefined))
+  expectTypeOf(parser.get('null')).toEqualTypeOf<null | undefined>()
+  expectTypeOf(parser.set).toBeCallableWith(null)
+  expectTypeOf(parser.set).toBeCallableWith(undefined)
+  // @ts-expect-error: this validator only accepts null
+  parser.set(1)
+})
+
 it('keeps equality optional on parsers and all helper results', () => {
   const parser: ParamParser<number, string> = { get: Number, set: String }
   const raw = defineParamParserRaw<number, number, string>({
