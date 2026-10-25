@@ -117,9 +117,7 @@ function createEngine(router: EXPERIMENTAL_Router) {
     overlay.value = new Map(overlay.value)
   }
 
-  function schedule() {
-    if (timer !== undefined) clearTimeout(timer)
-    timer = undefined
+  function nextDeadline() {
     let due = Infinity
     for (const writes of queue.values()) {
       for (const write of writes.values()) {
@@ -127,6 +125,13 @@ function createEngine(router: EXPERIMENTAL_Router) {
           due = Math.min(due, deadline)
       }
     }
+    return due
+  }
+
+  function schedule() {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = undefined
+    const due = nextDeadline()
     if (due === Infinity) return
     if (due <= Date.now()) {
       if (!scheduled) {
@@ -282,6 +287,10 @@ function createEngine(router: EXPERIMENTAL_Router) {
       return
     }
     if (!queue.size) return
+    if (!force && nextDeadline() > Date.now()) {
+      schedule()
+      return
+    }
     running = commit()
     await running
     running = undefined

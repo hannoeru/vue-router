@@ -108,7 +108,7 @@ Both composables accept the same options. Options on `update()`, `reset()`, `$pa
 
 If both debounce and throttle are set, a write waits until both limits permit it. All writes in the same tick are batched. When several params are queued, the shortest remaining wait triggers one navigation for **all** queued params. For example, an immediate page change also flushes a pending debounced search change.
 
-If two composable calls write the same param with different wait settings, the shortest remaining wait wins. Each call's latest write resets its own debounce deadline. The last written value is used, regardless of which deadline triggers the batch.
+If two composable calls write the same param with different wait settings, the shortest remaining wait wins. Each call's latest write resets its own debounce deadline. A later per-call debounce can postpone an earlier write from the same composable in the same tick. The last written value is used, regardless of which deadline triggers the batch.
 
 State is shared per router. Two components that bind the same route and param see the same optimistic value before the URL changes. Reads use parsed `route.params` with a shared optimistic overlay. Arrays and objects use structural equality unless the parser supplies `eq`; equal values keep stable computed identities.
 

@@ -489,6 +489,43 @@ it('flushes queued writes before an external push during an in-flight query writ
   expect(control.pending.value).toBe(false)
 })
 
+it.each(['single', 'group'] as const)(
+  'honors a later debounce before the scheduled microtask for %s state',
+  async kind => {
+    const { router, use } = await setup()
+    vi.useFakeTimers()
+    const [, control] = use(() => useQueryParam('search', 'q'))
+    const state = use(() => useQueryParams('search'))
+    const update = (value: string, options?: QueryStateOptions) =>
+      kind === 'single'
+        ? control.update(value, options)
+        : state.$patch({ q: value }, options)
+    const first = update('first')
+    const second = update('second', { debounce: 100 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(router.currentRoute.value.params.q).toBe('')
+    expect(control.pending.value).toBe(true)
+    await vi.advanceTimersByTimeAsync(99)
+    expect(router.currentRoute.value.params.q).toBe('')
+    await vi.advanceTimersByTimeAsync(1)
+    await Promise.all([first, second])
+    expect(router.currentRoute.value.params.q).toBe('second')
+    expect(control.pending.value).toBe(false)
+  }
+)
+
+it('lets an immediate binding flush another binding with a later debounce', async () => {
+  const { router, use } = await setup()
+  vi.useFakeTimers()
+  const [, immediate] = use(() => useQueryParam('search', 'q'))
+  const [, slow] = use(() => useQueryParam('search', 'q', { debounce: 100 }))
+  const first = immediate.update('first')
+  const second = slow.update('last')
+  await vi.advanceTimersByTimeAsync(0)
+  await Promise.all([first, second])
+  expect(router.currentRoute.value.params.q).toBe('last')
+})
+
 it('uses the shortest wait when two composables write the same param', async () => {
   const { router, use } = await setup()
   vi.useFakeTimers()
