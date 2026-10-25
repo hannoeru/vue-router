@@ -39,12 +39,30 @@ export type ParamParsersMap = Map<
 >
 
 // just for type strictness
-const _NATIVE_PARAM_PARSERS = ['int', 'bool', 'string'] as const
+const _NATIVE_PARAM_PARSERS = [
+  'int',
+  'bool',
+  'string',
+  'float',
+  'index',
+  'hex',
+  'date',
+  'datetime',
+  'timestamp',
+  'json',
+] as const
 const NATIVE_PARAM_PARSERS = _NATIVE_PARAM_PARSERS as readonly string[]
 const NATIVE_PARAM_PARSERS_TYPES = {
   int: 'number',
   bool: 'boolean',
   string: 'string',
+  float: 'number',
+  index: 'number',
+  hex: 'number',
+  date: 'Date',
+  datetime: 'Date',
+  timestamp: 'Date',
+  json: 'unknown',
 } satisfies Record<(typeof _NATIVE_PARAM_PARSERS)[number], string>
 
 const RAW_PARAM_PARSER_DEFINER = 'defineParamParserRaw'

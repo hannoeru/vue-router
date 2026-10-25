@@ -27,18 +27,20 @@ describe('PARAM_PARSER_BOOL', () => {
       expect(PARAM_PARSER_BOOL.get(undefined)).toBe(undefined)
     })
 
-    it('throws for invalid string values', () => {
-      expect(() => PARAM_PARSER_BOOL.get('')).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get('yes')).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get('no')).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get('1')).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get('0')).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get('on')).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get('off')).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get('maybe')).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get('invalid')).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get('true1')).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get('falsy')).toThrow()
+    it.each([
+      '',
+      'yes',
+      'no',
+      '1',
+      '0',
+      'on',
+      'off',
+      'maybe',
+      'invalid',
+      'true1',
+      'falsy',
+    ])('returns undefined for invalid boolean %j', value => {
+      expect(PARAM_PARSER_BOOL.get(value)).toBeUndefined()
     })
   })
 
@@ -85,12 +87,12 @@ describe('PARAM_PARSER_BOOL', () => {
       ])
     })
 
-    it('throws for arrays with invalid values', () => {
-      expect(() => PARAM_PARSER_BOOL.get(['true', 'invalid'])).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get(['invalid'])).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get(['true', ''])).toThrow()
-      expect(() => PARAM_PARSER_BOOL.get(['yes', 'no'])).toThrow()
-    })
+    it.each([['true', 'invalid'], ['invalid'], ['true', ''], ['yes', 'no']])(
+      'returns undefined for arrays with invalid items %j',
+      (...values) => {
+        expect(PARAM_PARSER_BOOL.get(values)).toBeUndefined()
+      }
+    )
   })
 
   describe('set() - Single Values', () => {

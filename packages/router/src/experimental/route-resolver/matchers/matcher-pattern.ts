@@ -217,7 +217,9 @@ export class MatcherPatternPathDynamic<
 
       // we intentionally pass null and empty arrays to the parser
       // so they can better control the outcome
-      params[paramName] = (parser?.get || identityFn)(value)
+      const parsed = (parser?.get || identityFn)(value)
+      if (parsed === undefined && currentMatch !== null) miss()
+      params[paramName] = parsed
     }
 
     if (

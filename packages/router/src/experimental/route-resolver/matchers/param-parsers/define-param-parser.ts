@@ -1,5 +1,5 @@
 import type { MatcherQueryParamsValue } from '../matcher-pattern'
-import type { ParamParser } from './types'
+import type { ParamParser, ParamParserWithGetSet } from './types'
 
 export const PATH_PARAM_SINGLE_DEFAULT: ParamParser<string, string> = {}
 
@@ -76,7 +76,7 @@ export function defineParamParserRaw<
   TParamRaw = TParam,
   // what gets passed to `get`
   TUrlParam = MatcherQueryParamsValue,
->(parser: Required<ParamParser<TParam, TUrlParam, TParamRaw>>) {
+>(parser: ParamParserWithGetSet<TParam, TUrlParam, TParamRaw>) {
   return parser
 }
 
@@ -87,8 +87,8 @@ export function defineParamParserRaw<
  * Unlike {@link defineParamParser}, this does not wrap arrays or nullish values.
  */
 export const defineHashParamParser: <TParam, TParamRaw = TParam>(
-  parser: Required<ParamParser<TParam, string, TParamRaw>>
-) => Required<ParamParser<TParam, string, TParamRaw>> = defineParamParserRaw
+  parser: ParamParserWithGetSet<TParam, string, TParamRaw>
+) => ParamParserWithGetSet<TParam, string, TParamRaw> = defineParamParserRaw
 
 /**
  * Defines a param parser that transforms strings to another type. Handles
@@ -125,21 +125,11 @@ export function defineParamParser<
   // we can allow pushing with extra values
   TParamRaw = TParam,
 >(
-  parser: Required<
-    ParamParser<
-      // TODO: I think it would make more sense to not allow null
-      // so users can focus on parsing strings
-      TParam,
-      string,
-      TParamRaw
-    >
-  >
-): Required<
-  ParamParser<
-    TParam | TParam[] | null,
-    MatcherQueryParamsValue,
-    TParamRaw | TParamRaw[] | null | undefined
-  >
+  parser: ParamParserWithGetSet<TParam, string, TParamRaw>
+): ParamParserWithGetSet<
+  TParam | TParam[] | null,
+  MatcherQueryParamsValue,
+  TParamRaw | TParamRaw[] | null | undefined
 > {
   return {
     get: value =>
@@ -154,5 +144,19 @@ export function defineParamParser<
         : Array.isArray(value)
           ? value.map(parser.set)
           : parser.set(value),
+    ...(parser.eq && {
+      eq: (a: TParam | TParam[] | null, b: TParam | TParam[] | null) => {
+        if (a == null || b == null) return a === b
+        if (Array.isArray(a) || Array.isArray(b)) {
+          return (
+            Array.isArray(a) &&
+            Array.isArray(b) &&
+            a.length === b.length &&
+            a.every((value, i) => parser.eq!(value, b[i]!))
+          )
+        }
+        return parser.eq!(a, b)
+      },
+    }),
   }
 }

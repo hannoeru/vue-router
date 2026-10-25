@@ -233,6 +233,13 @@ export interface ParamParsers_Native {
   int: { type: number }
   bool: { type: boolean }
   string: { type: string }
+  float: { type: number }
+  index: { type: number }
+  hex: { type: number }
+  date: { type: Date }
+  datetime: { type: Date }
+  timestamp: { type: Date }
+  json: { type: unknown }
 }
 
 export type ParamParserType_Native = keyof ParamParsers_Native

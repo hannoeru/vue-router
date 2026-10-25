@@ -1,4 +1,3 @@
-import { miss } from '../errors'
 import type { ParamParser } from './types'
 
 const PARAM_INTEGER_SINGLE = {
@@ -7,16 +6,20 @@ const PARAM_INTEGER_SINGLE = {
     if (value && Number.isSafeInteger(num)) {
       return num
     }
-    miss()
+    return undefined
   },
   set: (value: number) => String(value),
-} satisfies ParamParser<number, string | null>
+} satisfies ParamParser<number | undefined, string | null, number>
 
 const PARAM_INTEGER_REPEATABLE = {
-  get: (value: (string | null)[]) =>
-    value.filter((v): v is string => v != null).map(PARAM_INTEGER_SINGLE.get),
+  get: (value: (string | null)[]) => {
+    const parsed = value
+      .filter((v): v is string => v != null)
+      .map(PARAM_INTEGER_SINGLE.get)
+    return parsed.every(v => v !== undefined) ? parsed : undefined
+  },
   set: (value: number[]) => value.map(PARAM_INTEGER_SINGLE.set),
-} satisfies ParamParser<number[], (string | null)[]>
+} satisfies ParamParser<number[] | undefined, (string | null)[], number[]>
 
 /**
  * Native Param parser for integers.
@@ -36,4 +39,8 @@ export const PARAM_PARSER_INT = {
       : value != null
         ? PARAM_INTEGER_SINGLE.set(value)
         : null,
-} satisfies ParamParser<number | number[] | null>
+} satisfies ParamParser<
+  number | number[] | null | undefined,
+  string | (string | null)[] | null | undefined,
+  number | number[] | null | undefined
+>

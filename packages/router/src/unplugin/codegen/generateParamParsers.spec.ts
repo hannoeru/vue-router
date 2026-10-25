@@ -470,6 +470,35 @@ describe('generateParamParserOptions', () => {
     // they are handled by generateNormalizedParamParsersDeclarations
   })
 
+  it.each([
+    ['float', 'number'],
+    ['index', 'number'],
+    ['hex', 'number'],
+    ['date', 'Date'],
+    ['datetime', 'Date'],
+    ['timestamp', 'Date'],
+    ['json', 'unknown'],
+  ])('registers the native %s parser and its type', (parser, type) => {
+    const param: TreePathParam = {
+      type: 'path',
+      paramName: 'value',
+      modifier: '',
+      optional: false,
+      repeatable: false,
+      isSplat: false,
+      re: null,
+      parser,
+    }
+    const importsMap = new ImportsMap()
+    expect(generateParamParserOptions(param, importsMap, new Map())).toBe(
+      `PARAM_PARSER_${parser.toUpperCase()}`
+    )
+    expect(importsMap.toString()).toContain(
+      `import { PARAM_PARSER_${parser.toUpperCase()} } from 'vue-router/experimental'`
+    )
+    expect(generateParamsTypes([param], new Map())).toEqual([type])
+  })
+
   it('generates correct import for native int parser', () => {
     const param: TreePathParam = {
       type: 'path',
