@@ -1,0 +1,45 @@
+import { useRoute, useRouter } from 'vue-router'
+import { useQueryParam } from 'vue-router/experimental'
+
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends
+  (<T>() => T extends B ? 1 : 2) ? true : false
+type Assert<T extends true> = T
+
+const optional = useRoute('optional')
+const required = useRoute('required')
+const defaults = useRoute('defaults')
+const optionalRef = useQueryParam('optional', 'ids')
+const requiredRef = useQueryParam('required', 'ids')
+const defaultRef = useQueryParam('defaults', 'ids')
+
+export type Checks = [
+  Assert<Equal<typeof optional.params.ids, number[] | undefined>>,
+  Assert<Equal<typeof required.params.ids, number[]>>,
+  Assert<Equal<typeof defaults.params.ids, number[]>>,
+  Assert<Equal<typeof optionalRef.value, number[] | undefined>>,
+  Assert<Equal<typeof requiredRef.value, number[]>>,
+  Assert<Equal<typeof defaultRef.value, number[]>>,
+]
+
+optionalRef.value = [1, 2]
+optionalRef.value = undefined
+requiredRef.value = [1, 2]
+defaultRef.value = [1, 2]
+const [, controls] = requiredRef
+controls.update([3, 4])
+// @ts-expect-error: parsed arrays cannot be set to raw URL strings
+requiredRef.value = '1,2'
+// @ts-expect-error: required parsed arrays cannot be undefined
+requiredRef.value = undefined
+// @ts-expect-error: query updates take parsed arrays
+controls.update('3,4')
+
+const router = useRouter()
+router.push({ name: 'optional', params: {} })
+router.push({ name: 'optional', params: { ids: [1, 2] } })
+router.push({ name: 'required', params: { ids: [1, 2] } })
+router.push({ name: 'defaults', params: {} })
+router.push({ name: 'defaults', params: { ids: [1, 2] } })
+// @ts-expect-error: named navigation takes parsed arrays
+router.push({ name: 'required', params: { ids: '1,2' } })
