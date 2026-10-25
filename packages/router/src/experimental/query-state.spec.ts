@@ -15,6 +15,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory } from '../history/memory'
 import { RouterView } from '../RouterView'
 import { NavigationFailureType } from '../errors'
+import { onBeforeRouteUpdate } from '../navigationGuards'
+import type { NavigationGuard } from '../typed-routes'
 import { experimental_createRouter, normalizeRouteRecord } from './router'
 import { createFixedResolver } from './route-resolver/resolver-fixed'
 import {
@@ -391,12 +393,21 @@ it('rejects thrown navigation errors and removes optimistic state', async () => 
   const { router, use } = await setup()
   const [q, control] = use(() => useQueryParam('search', 'q'))
   router.onError(() => {})
-  router.beforeEach(() => {
+  const remove = router.beforeEach(() => {
     throw new Error('guard failed')
   })
   await expect(control.update('failed')).rejects.toThrow('guard failed')
   expect(q.value).toBe('')
   expect(control.pending.value).toBe(false)
+  remove()
+  const seen: string[] = []
+  router.afterEach(to => {
+    seen.push(to.fullPath)
+  })
+  const next = control.update('next', { debounce: 1000 })
+  await router.push('/other')
+  await next
+  expect(seen).toEqual(['/search/7?other=keep&q=next#anchor', '/other'])
 })
 
 it('keeps equal parsed object identities stable through unrelated updates', async () => {
@@ -579,6 +590,130 @@ it('keeps the composable clearOnDefault policy during reset', async () => {
   await state.$reset({ clearOnDefault: true })
   expect(router.currentRoute.value.query.p).toBeUndefined()
 })
+
+it.each([
+  ['beforeEach', 'push'],
+  ['beforeEach', 'replace'],
+  ['beforeResolve', 'push'],
+  ['beforeResolve', 'replace'],
+] as const)(
+  'settles a query write when %s awaits router.%s',
+  async (guard, method) => {
+    const { router, use } = await setup()
+    const [, controls] = use(() => useQueryParam('search', 'q'))
+    router[guard](async to => {
+      if (to.query.q?.[0] === 'redirect') {
+        await router[method]('/other')
+        return false
+      }
+      return undefined
+    })
+    await Promise.all([controls.update('redirect'), controls.flush()])
+    expect(router.currentRoute.value.fullPath).toBe('/other')
+    expect(controls.pending.value).toBe(false)
+  },
+  1500
+)
+
+it.each(['composition', 'options'] as const)(
+  'settles an awaited child navigation from a mounted %s update guard',
+  async kind => {
+    const { router } = await setup()
+    let controls!: ReturnType<typeof useQueryParam>[1]
+    const redirect: NavigationGuard = async to => {
+      if (to.query.q?.[0] === 'redirect') {
+        await router.push('/other')
+        return false
+      }
+      return undefined
+    }
+    router.getRoutes()[0].components!.default = defineComponent({
+      setup() {
+        ;[, controls] = useQueryParam('search', 'q')
+        if (kind === 'composition') onBeforeRouteUpdate(redirect)
+        return () => h('main', 'Search')
+      },
+      beforeRouteUpdate: kind === 'options' ? redirect : undefined,
+    })
+    const wrapper = mount(
+      defineComponent(() => () => h(RouterView)),
+      { global: { plugins: [router] } }
+    )
+    cleanups.push(() => wrapper.unmount())
+    await Promise.all([controls.update('redirect'), controls.flush()])
+    expect(router.currentRoute.value.fullPath).toBe('/other')
+    expect(controls.pending.value).toBe(false)
+  },
+  1500
+)
+
+it.each(['record', 'returned'] as const)(
+  'keeps the query origin through a child navigation with a %s redirect',
+  async kind => {
+    const { router, use } = await setup()
+    const [, controls] = use(() => useQueryParam('search', 'q'))
+    router.getRoutes().push(
+      normalizeRouteRecord({
+        name: 'intermediate',
+        path: new MatcherPatternPathStatic('/intermediate'),
+        components: {},
+        ...(kind === 'record' ? { redirect: '/other' } : {}),
+      }),
+      normalizeRouteRecord({
+        name: 'done',
+        path: new MatcherPatternPathStatic('/done'),
+        components: {},
+      })
+    )
+    router.beforeEach(async to => {
+      if (to.query.q?.[0] === 'redirect') {
+        await router.push('/intermediate')
+        return false
+      }
+      if (to.path === '/intermediate') return '/other'
+      if (to.path === '/other') {
+        await router.replace('/done')
+        return false
+      }
+      return undefined
+    })
+    await Promise.all([controls.update('redirect'), controls.flush()])
+    expect(router.currentRoute.value.fullPath).toBe('/done')
+    expect(controls.pending.value).toBe(false)
+  },
+  1500
+)
+
+it('settles later queued writes after a guard awaits its child navigation', async () => {
+  const { router, use } = await setup()
+  const [, controls] = use(() => useQueryParam('search', 'q'))
+  let release!: () => void
+  const entered = new Promise<void>(resolve => {
+    router.beforeEach(async to => {
+      if (to.query.q?.[0] === 'redirect') {
+        await router.push('/other')
+        return false
+      }
+      if (to.path === '/other') {
+        resolve()
+        await new Promise<void>(resolve => {
+          release = resolve
+        })
+      }
+      return undefined
+    })
+  })
+  const first = controls.update('redirect')
+  const drain = controls.flush()
+  await entered
+  const second = expect(controls.update('late')).rejects.toThrow(
+    'route changed'
+  )
+  release()
+  await Promise.all([first, drain, second])
+  expect(router.currentRoute.value.fullPath).toBe('/other')
+  expect(controls.pending.value).toBe(false)
+}, 1500)
 
 it.each(['beforeEach', 'beforeResolve'] as const)(
   'settles a query write redirected by %s from a mounted route',

@@ -116,6 +116,14 @@ export function guardToPromiseFn(
   guard: NavigationGuard,
   to: RouteLocationNormalized,
   from: RouteLocationNormalizedLoaded,
+  record: undefined,
+  name: undefined,
+  runWithContext: <T>(fn: () => T) => T
+): () => Promise<void>
+export function guardToPromiseFn(
+  guard: NavigationGuard,
+  to: RouteLocationNormalized,
+  from: RouteLocationNormalizedLoaded,
   record: RouteRecordNormalized,
   name: string,
   runWithContext: <T>(fn: () => T) => T

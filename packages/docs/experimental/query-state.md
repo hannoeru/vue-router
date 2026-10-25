@@ -136,7 +136,18 @@ Call these composables in component setup or an active effect scope. Each call h
 
 Programmatic `router.push()`, `replace()`, `go()`, `back()`, and `forward()` flush queued query state before starting the requested navigation. This prevents a delayed update from cancelling the destination navigation.
 
-During a query-state navigation, redirect from a guard by returning a route location. Async guards can await other work before they return that location. Do not await `router.push()`, `router.replace()`, or query-state `flush()` from that guard. These operations wait for the query-state navigation that is running the guard and cannot complete until the guard returns.
+A guard can start a child `router.push()` or `router.replace()` before its first `await`, then await that navigation. The child navigation keeps the query commit's origin and does not wait for that parent commit. Independent navigation still flushes pending writes.
+
+```ts
+router.beforeEach(async to => {
+  if (to.query.q?.[0] === 'redirect') {
+    await router.push('/other')
+    return false
+  }
+})
+```
+
+Navigation origin is scoped to the synchronous guard invocation. If a guard first awaits other work, return a redirect location afterward instead of starting and awaiting a child navigation. Do not await query-state `flush()` from a guard running in that same query commit; it waits for the commit whose completion requires the guard to return.
 
 ::: warning Native browser history traversal
 The browser's Back or Forward button moves history before the router receives the pop event. Query state cannot safely write the previous entry at that point. Pending queued writes are **cancelled**, their promises reject with an error, and their optimistic values and timer are cleared. They are not flushed. The destination navigation is not replaced by a delayed query update. Use the router's `back()` or `forward()` method if pending writes must be flushed first.

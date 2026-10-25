@@ -95,9 +95,11 @@ function createEngine(router: EXPERIMENTAL_Router) {
   let timer: ReturnType<typeof setTimeout> | undefined
   let scheduled = false
   let running: Promise<void> | undefined
-  let internalNavigation = false
-  router._beforeQueryStateNavigation = () =>
-    internalNavigation ? Promise.resolve() : flush()
+  let activeCommitOrigin: symbol | undefined
+  router._beforeQueryStateNavigation = origin =>
+    origin !== undefined && origin === activeCommitOrigin
+      ? Promise.resolve()
+      : flush()
   router._cancelQueryStateNavigation = () => {
     if (timer !== undefined) clearTimeout(timer)
     timer = undefined
@@ -253,14 +255,14 @@ function createEngine(router: EXPERIMENTAL_Router) {
         if (!lastFlush.has(name)) lastFlush.set(name, new Map())
         for (const key of writes.keys())
           lastFlush.get(name)!.set(key, Date.now())
-        let navigation: ReturnType<EXPERIMENTAL_Router['push']>
-        internalNavigation = true
+        activeCommitOrigin = Symbol()
         try {
-          navigation = router.push(location)
+          await router._withQueryStateNavigation(activeCommitOrigin, () =>
+            router.push(location)
+          )
         } finally {
-          internalNavigation = false
+          activeCommitOrigin = undefined
         }
-        await navigation
         for (const write of writes.values())
           for (const deferred of write.deferred) deferred.resolve()
       } catch (error) {

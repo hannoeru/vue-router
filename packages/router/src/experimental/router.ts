@@ -654,7 +654,10 @@ export interface EXPERIMENTAL_Router
   readonly options: EXPERIMENTAL_RouterOptions
 
   /** @internal */
-  _beforeQueryStateNavigation?: () => Promise<void>
+  _beforeQueryStateNavigation?: (origin?: symbol) => Promise<void>
+
+  /** @internal */
+  _withQueryStateNavigation<T>(origin: symbol | undefined, fn: () => T): T
 
   /** @internal */
   _cancelQueryStateNavigation?: () => void
@@ -789,18 +792,35 @@ export function experimental_createRouter(
     }
   }
 
+  let invocationOrigin: symbol | undefined
+
+  function withQueryStateNavigation<T>(
+    origin: symbol | undefined,
+    fn: () => T
+  ): T {
+    const previous = invocationOrigin
+    invocationOrigin = origin
+    try {
+      return fn()
+    } finally {
+      invocationOrigin = previous
+    }
+  }
+
   const push = (...args: _resolveArgs) => {
-    const flushed = router._beforeQueryStateNavigation?.()
-    return flushed
-      ? flushed.then(() => pushWithRedirect(resolve(...args)))
-      : pushWithRedirect(resolve(...args))
+    const origin = invocationOrigin
+    const flushed = router._beforeQueryStateNavigation?.(origin)
+    const navigate = () =>
+      pushWithRedirect(resolve(...args), undefined, undefined, origin)
+    return flushed ? flushed.then(navigate) : navigate()
   }
 
   const replace = (...args: _resolveArgs) => {
-    const flushed = router._beforeQueryStateNavigation?.()
-    return flushed
-      ? flushed.then(() => pushWithRedirect(resolve(...args), true))
-      : pushWithRedirect(resolve(...args), true)
+    const origin = invocationOrigin
+    const flushed = router._beforeQueryStateNavigation?.(origin)
+    const navigate = () =>
+      pushWithRedirect(resolve(...args), true, undefined, origin)
+    return flushed ? flushed.then(navigate) : navigate()
   }
 
   function handleRedirectRecord(
@@ -830,7 +850,8 @@ export function experimental_createRouter(
   function pushWithRedirect(
     to: RouteLocationResolved,
     replace?: boolean,
-    redirectedFrom?: RouteLocation
+    redirectedFrom?: RouteLocation,
+    origin?: symbol
   ): Promise<NavigationFailure | void | undefined> {
     replace = to.replace ?? replace
     pendingLocation = to
@@ -853,7 +874,8 @@ export function experimental_createRouter(
         },
         replace,
         // keep original redirectedFrom if it exists
-        redirectedFrom || to
+        redirectedFrom || to,
+        origin
       )
     }
 
@@ -885,7 +907,9 @@ export function experimental_createRouter(
       )
     }
 
-    return (failure ? Promise.resolve(failure) : navigate(toLocation, from))
+    return (
+      failure ? Promise.resolve(failure) : navigate(toLocation, from, origin)
+    )
       .catch((error: NavigationFailure | NavigationRedirectError) =>
         isNavigationFailure(error)
           ? // navigation redirects still mark the router as ready
@@ -944,7 +968,8 @@ export function experimental_createRouter(
               // preserve an existing replacement but allow the redirect to override it
               replace,
               // preserve the original redirectedFrom if any
-              redirectedFrom || toLocation
+              redirectedFrom || toLocation,
+              origin
             )
           }
         } else {
@@ -988,9 +1013,21 @@ export function experimental_createRouter(
 
   function navigate(
     to: RouteLocationNormalized,
-    from: RouteLocationNormalizedLoaded
+    from: RouteLocationNormalizedLoaded,
+    origin?: symbol
   ): Promise<any> {
     let guards: Lazy<any>[]
+    const runWithNavigationContext = <T>(fn: () => T): T =>
+      withQueryStateNavigation(origin, () => runWithContext(fn))
+    const guardToPromise = (guard: NavigationGuard) =>
+      guardToPromiseFn(
+        guard,
+        to,
+        from,
+        undefined,
+        undefined,
+        runWithNavigationContext
+      )
 
     const [leavingRecords, updatingRecords, enteringRecords] =
       extractChangingRecords(to, from)
@@ -1000,13 +1037,14 @@ export function experimental_createRouter(
       leavingRecords.reverse(),
       'beforeRouteLeave',
       to,
-      from
+      from,
+      runWithNavigationContext
     )
 
     // leavingRecords is already reversed
     for (const record of leavingRecords) {
       record.leaveGuards.forEach(guard => {
-        guards.push(guardToPromiseFn(guard, to, from))
+        guards.push(guardToPromise(guard))
       })
     }
 
@@ -1025,7 +1063,7 @@ export function experimental_createRouter(
           // check global guards beforeEach
           guards = []
           for (const guard of beforeGuards.list()) {
-            guards.push(guardToPromiseFn(guard, to, from))
+            guards.push(guardToPromise(guard))
           }
           guards.push(canceledNavigationCheck)
 
@@ -1037,12 +1075,13 @@ export function experimental_createRouter(
             updatingRecords,
             'beforeRouteUpdate',
             to,
-            from
+            from,
+            runWithNavigationContext
           )
 
           for (const record of updatingRecords) {
             record.updateGuards.forEach(guard => {
-              guards.push(guardToPromiseFn(guard, to, from))
+              guards.push(guardToPromise(guard))
             })
           }
           guards.push(canceledNavigationCheck)
@@ -1058,9 +1097,9 @@ export function experimental_createRouter(
             if (record.beforeEnter) {
               if (isArray(record.beforeEnter)) {
                 for (const beforeEnter of record.beforeEnter)
-                  guards.push(guardToPromiseFn(beforeEnter, to, from))
+                  guards.push(guardToPromise(beforeEnter))
               } else {
-                guards.push(guardToPromiseFn(record.beforeEnter, to, from))
+                guards.push(guardToPromise(record.beforeEnter))
               }
             }
           }
@@ -1081,7 +1120,7 @@ export function experimental_createRouter(
             'beforeRouteEnter',
             to,
             from,
-            runWithContext
+            runWithNavigationContext
           )
           guards.push(canceledNavigationCheck)
 
@@ -1092,7 +1131,7 @@ export function experimental_createRouter(
           // check global guards beforeResolve
           guards = []
           for (const guard of beforeResolveGuards.list()) {
-            guards.push(guardToPromiseFn(guard, to, from))
+            guards.push(guardToPromise(guard))
           }
           guards.push(canceledNavigationCheck)
 
@@ -1429,6 +1468,7 @@ export function experimental_createRouter(
   const router: EXPERIMENTAL_Router = {
     currentRoute,
     listening: true,
+    _withQueryStateNavigation: withQueryStateNavigation,
 
     hasRoute: name => !!resolver.getRoute(name),
     getRoutes: () => resolver.getRoutes(),
