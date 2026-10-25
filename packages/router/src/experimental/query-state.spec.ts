@@ -14,6 +14,7 @@ import {
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory } from '../history/memory'
 import { RouterView } from '../RouterView'
+import { NavigationFailureType } from '../errors'
 import { experimental_createRouter, normalizeRouteRecord } from './router'
 import { createFixedResolver } from './route-resolver/resolver-fixed'
 import {
@@ -424,6 +425,31 @@ it('suppresses the legacy scroll callback by default and permits it on request',
   await control.update('scroll', { scroll: true })
   await nextTick()
   expect(scroll).toHaveBeenCalledTimes(1)
+})
+
+it('does not carry query scroll suppression into an ordinary duplicate navigation', async () => {
+  const { router, use } = await setup('/search/7')
+  router.getRoutes()[0].query = [
+    new MatcherPatternQueryParam('q', 'q', 'value', {}, ''),
+  ]
+  await router.push('/search/7')
+  const [, controls] = use(() => useQueryParam('search', 'q'))
+  const scroll = vi.fn(() => ({ top: 10 }))
+  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+  cleanups.push(() => scrollTo.mockRestore())
+  router.options.scrollBehavior = scroll
+  await controls.update('value')
+  await flushPromises()
+  expect(scroll).not.toHaveBeenCalled()
+  const failure = await router.push('/search/7?q=value')
+  expect(failure).toMatchObject({ type: NavigationFailureType.duplicated })
+  await flushPromises()
+  expect(scroll).toHaveBeenCalledOnce()
+  expect(scrollTo).toHaveBeenCalledOnce()
+  await controls.update('value', { clearOnDefault: true })
+  await flushPromises()
+  expect(scroll).toHaveBeenCalledOnce()
+  expect(scrollTo).toHaveBeenCalledOnce()
 })
 
 it('drains concurrent forced flush callers before external navigation', async () => {

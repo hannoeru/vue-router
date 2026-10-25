@@ -880,7 +880,8 @@ export function experimental_createRouter(
         true,
         // This cannot be the first navigation because the initial location
         // cannot be manually navigated to
-        false
+        false,
+        (to as QueryStateNavigation)[QUERY_STATE_SCROLL]
       )
     }
 
@@ -1158,7 +1159,13 @@ export function experimental_createRouter(
 
     // accept current navigation
     currentRoute.value = toLocation
-    handleScroll(toLocation, from, isPush, isFirstNavigation)
+    handleScroll(
+      toLocation,
+      from,
+      isPush,
+      isFirstNavigation,
+      (toLocation as QueryStateNavigation)[QUERY_STATE_SCROLL]
+    )
 
     markAsReady()
   }
@@ -1381,16 +1388,12 @@ export function experimental_createRouter(
     to: RouteLocationNormalizedLoaded,
     from: RouteLocationNormalizedLoaded,
     isPush: boolean,
-    isFirstNavigation: boolean
+    isFirstNavigation: boolean,
+    scroll = true
   ): // the return is not meant to be used
   Promise<unknown> {
     const { scrollBehavior } = options
-    if (
-      !isBrowser ||
-      !scrollBehavior ||
-      (to as QueryStateNavigation)[QUERY_STATE_SCROLL] === false
-    )
-      return Promise.resolve()
+    if (!isBrowser || !scrollBehavior || !scroll) return Promise.resolve()
 
     const scrollPosition: _ScrollPositionNormalized | null =
       (!isPush && getSavedScrollPosition(getScrollKey(to.fullPath, 0))) ||
