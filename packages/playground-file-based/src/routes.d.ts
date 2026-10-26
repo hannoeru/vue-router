@@ -67,6 +67,7 @@ declare module 'vue-router/auto-routes' {
       '/',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
     '/(packages)/package/[[org=npm-org]]/[pkgName]/[pkgVersion=semver]': RouteRecordInfo<
@@ -74,6 +75,7 @@ declare module 'vue-router/auto-routes' {
       '/package/:org?/:pkgName/:pkgVersion',
       { 'org': Exclude<Param_npmOrg, unknown[] | null> | null, 'pkgName': string, 'pkgVersion': Exclude<Param_semver, unknown[] | null> },
       { 'org': Exclude<Param_npmOrg, unknown[] | null> | null, 'pkgName': string, 'pkgVersion': Exclude<Param_semver, unknown[] | null> },
+      | never,
       | never
     >,
     '/(packages)/package-old/[[org]]/[pkgName]/[pkgVersion]': RouteRecordInfo<
@@ -81,6 +83,7 @@ declare module 'vue-router/auto-routes' {
       '/package-old/:org?/:pkgName/:pkgVersion',
       { 'org': string | null, 'pkgName': string, 'pkgVersion': string },
       { 'org': string | null, 'pkgName': string, 'pkgVersion': string },
+      | never,
       | never
     >,
     '/(packages)/package-range/[[org=npm-org]]/[pkgName]/[pkgVersion=version-range]': RouteRecordInfo<
@@ -88,6 +91,7 @@ declare module 'vue-router/auto-routes' {
       '/package-range/:org?/:pkgName/:pkgVersion',
       { 'org': Exclude<Param_npmOrg, unknown[] | null> | null, 'pkgName': string, 'pkgVersion': Exclude<Param_versionRange, unknown[] | null> },
       { 'org': Exclude<Param_npmOrg, unknown[] | null> | null, 'pkgName': string, 'pkgVersion': Exclude<Param_versionRange, unknown[] | null> },
+      | never,
       | never
     >,
     '/(packages)/package-zod/[[org=npm-org]]/[pkgName]/[pkgVersion]': RouteRecordInfo<
@@ -95,6 +99,7 @@ declare module 'vue-router/auto-routes' {
       '/package-zod/:org?/:pkgName/:pkgVersion',
       { 'org': Exclude<Param_npmOrg, unknown[] | null> | null, 'pkgName': string, 'pkgVersion': string },
       { 'org': Exclude<Param_npmOrg, unknown[] | null> | null, 'pkgName': string, 'pkgVersion': string },
+      | never,
       | never
     >,
     'not-found': RouteRecordInfo<
@@ -102,13 +107,21 @@ declare module 'vue-router/auto-routes' {
       '/:path(.*)',
       { 'active'?: boolean, 'multi'?: string[] | undefined, 'optionalWhen'?: Exclude<Param_date, unknown[] | null> | undefined, 'other'?: boolean | undefined, 'page'?: number, 'path': string, 'req'?: number, 'when'?: Exclude<Param_date, unknown[] | null> },
       { 'active': boolean, 'multi': string[] | undefined, 'optionalWhen': Exclude<Param_date, unknown[] | null> | undefined, 'other': boolean | undefined, 'page': number, 'path': string, 'req': number, 'when': Exclude<Param_date, unknown[] | null> },
-      | never
+      | never,
+      | 'active'
+      | 'multi'
+      | 'optionalWhen'
+      | 'other'
+      | 'page'
+      | 'req'
+      | 'when'
     >,
     '/a.[b].c.[d]': RouteRecordInfo<
       '/a.[b].c.[d]',
       '/a/:b/c/:d',
       { 'b': number, 'd': string },
       { 'b': number, 'd': string },
+      | never,
       | never
     >,
     '/about': RouteRecordInfo<
@@ -116,6 +129,7 @@ declare module 'vue-router/auto-routes' {
       '/about',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
     '/b': RouteRecordInfo<
@@ -123,13 +137,16 @@ declare module 'vue-router/auto-routes' {
       '/b',
       { 'date'?: Extract<Param_date, unknown[]> | undefined, 'test'?: Param_set /* raw param parser */ | undefined },
       { 'date': Extract<Param_date, unknown[]> | undefined, 'test': Param_set /* raw param parser */ },
-      | never
+      | never,
+      | 'date'
+      | 'test'
     >,
     '/blog/[slug]+': RouteRecordInfo<
       '/blog/[slug]+',
       '/blog/:slug+',
       { 'slug': string[] },
       { 'slug': string[] },
+      | never,
       | never
     >,
     '/blog/[[slugOptional]]+': RouteRecordInfo<
@@ -137,6 +154,7 @@ declare module 'vue-router/auto-routes' {
       '/blog/:slugOptional*',
       { 'slugOptional': string[] },
       { 'slugOptional': string[] },
+      | never,
       | never
     >,
     '/blog/info/(info)': RouteRecordInfo<
@@ -144,6 +162,7 @@ declare module 'vue-router/auto-routes' {
       '/blog/info',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
     '/blog/info/[[section]]': RouteRecordInfo<
@@ -151,6 +170,7 @@ declare module 'vue-router/auto-routes' {
       '/blog/info/:section?',
       { 'section': string | null },
       { 'section': string | null },
+      | never,
       | never
     >,
     '/emoji-🤡': RouteRecordInfo<
@@ -158,6 +178,7 @@ declare module 'vue-router/auto-routes' {
       '/emoji-%F0%9F%A4%A1',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
     '/events/[when=date]': RouteRecordInfo<
@@ -165,6 +186,7 @@ declare module 'vue-router/auto-routes' {
       '/events/:when',
       { 'when': Exclude<Param_date, unknown[] | null> },
       { 'when': Exclude<Param_date, unknown[] | null> },
+      | never,
       | never
     >,
     '/events/repeat/[when=date]+': RouteRecordInfo<
@@ -172,6 +194,7 @@ declare module 'vue-router/auto-routes' {
       '/events/repeat/:when+',
       { 'when': Extract<Param_date, unknown[]> },
       { 'when': Extract<Param_date, unknown[]> },
+      | never,
       | never
     >,
     '/it\'s-fine/(lol)': RouteRecordInfo<
@@ -179,6 +202,7 @@ declare module 'vue-router/auto-routes' {
       '/it\'s-fine',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
     '/months/valibot-[month=month-valibot]': RouteRecordInfo<
@@ -186,6 +210,7 @@ declare module 'vue-router/auto-routes' {
       '/months/valibot-:month',
       { 'month': Exclude<Param_monthValibot, unknown[] | null> },
       { 'month': Exclude<Param_monthValibot, unknown[] | null> },
+      | never,
       | never
     >,
     '/months/zod-[month=month-zod]': RouteRecordInfo<
@@ -193,13 +218,15 @@ declare module 'vue-router/auto-routes' {
       '/months/zod-:month',
       { 'mm'?: Exclude<Param_monthZod, unknown[] | null>, 'month': Exclude<Param_monthZod, unknown[] | null> },
       { 'mm': Exclude<Param_monthZod, unknown[] | null>, 'month': Exclude<Param_monthZod, unknown[] | null> },
-      | never
+      | never,
+      | 'mm'
     >,
     '/multi.[a].[b]': RouteRecordInfo<
       '/multi.[a].[b]',
       '/multi/:a/:b',
       { 'a': string, 'b': string },
       { 'a': string, 'b': string },
+      | never,
       | never
     >,
     '/nested/': RouteRecordInfo<
@@ -207,6 +234,7 @@ declare module 'vue-router/auto-routes' {
       '/nested',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
     '/nested/other': RouteRecordInfo<
@@ -214,6 +242,7 @@ declare module 'vue-router/auto-routes' {
       '/nested/other',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
     '/opt.[[num=int]]': RouteRecordInfo<
@@ -221,6 +250,7 @@ declare module 'vue-router/auto-routes' {
       '/opt/:num?',
       { 'num': number | null },
       { 'num': number | null },
+      | never,
       | never
     >,
     '/test-params/(list)': RouteRecordInfo<
@@ -228,6 +258,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
     '/test-params/color.[c]': RouteRecordInfo<
@@ -235,6 +266,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/color/:c',
       { 'c': Exclude<Param_testColor, unknown[] | null> },
       { 'c': Exclude<Param_testColor, unknown[] | null> },
+      | never,
       | never
     >,
     '/test-params/hash': RouteRecordInfo<
@@ -242,6 +274,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/hash',
       { 'section'?: Param_testHashSplit | undefined },
       { 'section': Exclude<Param_testHashSplit, undefined> },
+      | never,
       | never
     >,
     '/test-params/hash-int': RouteRecordInfo<
@@ -249,6 +282,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/hash-int',
       { 'myHash'?: number | undefined },
       { 'myHash': number },
+      | never,
       | never
     >,
     '/test-params/opt.[[id]]': RouteRecordInfo<
@@ -256,6 +290,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/opt/:id?',
       { 'id': Exclude<Param_testNum, unknown[] | null> | null },
       { 'id': Exclude<Param_testNum, unknown[] | null> | null },
+      | never,
       | never
     >,
     '/test-params/query': RouteRecordInfo<
@@ -263,13 +298,18 @@ declare module 'vue-router/auto-routes' {
       '/test-params/query',
       { 'active'?: Exclude<Param_testBoolQ, unknown[] | null>, 'ids'?: Param_testCsv /* raw param parser */ | undefined, 'page'?: number, 'tag'?: string[] | undefined },
       { 'active': Exclude<Param_testBoolQ, unknown[] | null>, 'ids': Param_testCsv /* raw param parser */, 'page': number, 'tag': string[] | undefined },
-      | never
+      | never,
+      | 'active'
+      | 'ids'
+      | 'page'
+      | 'tag'
     >,
     '/test-params/raw/opt.[[ids]]': RouteRecordInfo<
       '/test-params/raw/opt.[[ids]]',
       '/test-params/raw/opt/:ids?',
       { 'ids': Param_testCsv /* raw param parser */ },
       { 'ids': Param_testCsv /* raw param parser */ },
+      | never,
       | never
     >,
     '/test-params/raw/rep.[ids]+': RouteRecordInfo<
@@ -277,6 +317,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/raw/rep/:ids+',
       { 'ids': Param_testCsv /* raw param parser */ },
       { 'ids': Param_testCsv /* raw param parser */ },
+      | never,
       | never
     >,
     '/test-params/raw/repo.[[ids]]+': RouteRecordInfo<
@@ -284,6 +325,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/raw/repo/:ids*',
       { 'ids': Param_testCsv /* raw param parser */ },
       { 'ids': Param_testCsv /* raw param parser */ },
+      | never,
       | never
     >,
     '/test-params/raw/req.[ids]': RouteRecordInfo<
@@ -291,6 +333,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/raw/req/:ids',
       { 'ids': Param_testCsv /* raw param parser */ },
       { 'ids': Param_testCsv /* raw param parser */ },
+      | never,
       | never
     >,
     '/test-params/rep.[id]+': RouteRecordInfo<
@@ -298,6 +341,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/rep/:id+',
       { 'id': Extract<Param_testNum, unknown[]> },
       { 'id': Extract<Param_testNum, unknown[]> },
+      | never,
       | never
     >,
     '/test-params/repo.[[id]]+': RouteRecordInfo<
@@ -305,6 +349,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/repo/:id*',
       { 'id': Extract<Param_testNum, unknown[]> },
       { 'id': Extract<Param_testNum, unknown[]> },
+      | never,
       | never
     >,
     '/test-params/req.[id]': RouteRecordInfo<
@@ -312,6 +357,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/req/:id',
       { 'id': Exclude<Param_testNum, unknown[] | null> },
       { 'id': Exclude<Param_testNum, unknown[] | null> },
+      | never,
       | never
     >,
     '/test-params/set/opt.[[ids]]': RouteRecordInfo<
@@ -319,6 +365,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/set/opt/:ids?',
       { 'ids': Param_testSet /* raw param parser */ },
       { 'ids': Param_testSet /* raw param parser */ },
+      | never,
       | never
     >,
     '/test-params/set/rep.[ids]+': RouteRecordInfo<
@@ -326,6 +373,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/set/rep/:ids+',
       { 'ids': Param_testSet /* raw param parser */ },
       { 'ids': Param_testSet /* raw param parser */ },
+      | never,
       | never
     >,
     '/test-params/set/repo.[[ids]]+': RouteRecordInfo<
@@ -333,6 +381,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/set/repo/:ids*',
       { 'ids': Param_testSet /* raw param parser */ },
       { 'ids': Param_testSet /* raw param parser */ },
+      | never,
       | never
     >,
     '/test-params/set/req.[ids]': RouteRecordInfo<
@@ -340,6 +389,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/set/req/:ids',
       { 'ids': Param_testSet /* raw param parser */ },
       { 'ids': Param_testSet /* raw param parser */ },
+      | never,
       | never
     >,
     '/test-params/set-shape/repo.[[ids]]+': RouteRecordInfo<
@@ -347,6 +397,7 @@ declare module 'vue-router/auto-routes' {
       '/test-params/set-shape/repo/:ids*',
       { 'ids': Param_testSetShape /* raw param parser */ },
       { 'ids': Param_testSetShape /* raw param parser */ },
+      | never,
       | never
     >,
     '/tests/[[optional]]/end': RouteRecordInfo<
@@ -354,6 +405,7 @@ declare module 'vue-router/auto-routes' {
       '/tests/:optional?/end',
       { 'optional': string | null },
       { 'optional': string | null },
+      | never,
       | never
     >,
     '/tests/users/[username]/(user-home)/(user-home)': RouteRecordInfo<
@@ -361,6 +413,7 @@ declare module 'vue-router/auto-routes' {
       '/tests/users/:username',
       { 'username': string },
       { 'username': string },
+      | never,
       | never
     >,
     '/tests/users/[username]/(user)/profile': RouteRecordInfo<
@@ -368,6 +421,7 @@ declare module 'vue-router/auto-routes' {
       '/tests/users/:username/profile',
       { 'username': string },
       { 'username': string },
+      | never,
       | never
     >,
     '/u[name]': RouteRecordInfo<
@@ -376,13 +430,15 @@ declare module 'vue-router/auto-routes' {
       { 'name': Exclude<Param_date, unknown[] | null> },
       { 'name': Exclude<Param_date, unknown[] | null> },
       | '/u[name]/24'
-      | '/u[name]/[userId=int]'
+      | '/u[name]/[userId=int]',
+      | never
     >,
     '/u[name]/[userId=int]': RouteRecordInfo<
       '/u[name]/[userId=int]',
       '/u:name/:userId',
       { 'name': Exclude<Param_date, unknown[] | null>, 'userId': number },
       { 'name': Exclude<Param_date, unknown[] | null>, 'userId': number },
+      | never,
       | never
     >,
     '/u[name]/24': RouteRecordInfo<
@@ -390,6 +446,7 @@ declare module 'vue-router/auto-routes' {
       '/u:name/24',
       { 'name': Exclude<Param_date, unknown[] | null> },
       { 'name': Exclude<Param_date, unknown[] | null> },
+      | never,
       | never
     >,
     '/users/[userId]': RouteRecordInfo<
@@ -397,6 +454,7 @@ declare module 'vue-router/auto-routes' {
       '/users/:userId',
       { 'userId': number },
       { 'userId': number },
+      | never,
       | never
     >,
     '/users/sub-[first]-[second]': RouteRecordInfo<
@@ -404,6 +462,7 @@ declare module 'vue-router/auto-routes' {
       '/users/sub-:first-:second',
       { 'first': string, 'second': string },
       { 'first': string, 'second': string },
+      | never,
       | never
     >,
     '/with-layout/(home)': RouteRecordInfo<
@@ -411,6 +470,7 @@ declare module 'vue-router/auto-routes' {
       '/with-layout',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
     '/with-layout/+layout': RouteRecordInfo<
@@ -418,6 +478,7 @@ declare module 'vue-router/auto-routes' {
       '/with-layout/+layout',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
     '/with-layout/other': RouteRecordInfo<
@@ -425,6 +486,7 @@ declare module 'vue-router/auto-routes' {
       '/with-layout/other',
       Record<never, never>,
       Record<never, never>,
+      | never,
       | never
     >,
   }

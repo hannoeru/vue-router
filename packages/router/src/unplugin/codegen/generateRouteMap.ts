@@ -98,6 +98,17 @@ export function generateRouteRecordInfo(
 
   typeParams.push(formatMultilineUnion(childRouteNames.map(toStringLiteral), 4))
 
+  if (options.experimental.paramParsers) {
+    typeParams.push(
+      formatMultilineUnion(
+        params
+          .filter(param => param.type === 'query')
+          .map(param => toStringLiteral(param.paramName)),
+        4
+      )
+    )
+  }
+
   return `RouteRecordInfo<
 ${typeParams.map(line => pad(4, line)).join(',\n')}
   >`

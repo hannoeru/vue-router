@@ -13,6 +13,33 @@ import {
 } from './route-resolver/matchers/param-parsers'
 
 describe('param equality', () => {
+  it.each(['array', 'object'])(
+    'handles deeply nested parsed JSON %s values',
+    kind => {
+      const depth = 50000
+      const open = kind === 'array' ? '[' : '{"value":'
+      const close = kind === 'array' ? ']' : '}'
+      const json = open.repeat(depth) + '0' + close.repeat(depth)
+      const first = PARAM_PARSER_JSON.get(json)
+      const second = PARAM_PARSER_JSON.get(json)
+      expect(first).toBeDefined()
+      expect(second).toBeDefined()
+      expect(isSameParamValue(first, first)).toBe(true)
+      expect(isSameParamValue(first, second)).toBe(false)
+      expect(PARAM_PARSER_JSON.eq?.(first, second)).toBe(false)
+      expect(PARAM_PARSER_JSON.set(first)).toBeUndefined()
+      const matcher = new MatcherPatternQueryParam(
+        'filter',
+        'f',
+        'value',
+        PARAM_PARSER_JSON,
+        first
+      )
+      expect(matcher.equals(first, second)).toBe(false)
+      expect(matcher.build({ filter: second })).toEqual({ f: undefined })
+    }
+  )
+
   it.each([
     [null, null, true],
     [undefined, undefined, true],

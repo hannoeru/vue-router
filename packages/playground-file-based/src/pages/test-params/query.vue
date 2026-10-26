@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useQueryParam, useQueryParams } from 'vue-router/experimental'
 
 definePage({
   params: {
@@ -19,6 +20,8 @@ definePage({
 
 const route = useRoute()
 const router = useRouter()
+const { state: page, pending } = useQueryParam('/test-params/query', 'page')
+const { patch, reset } = useQueryParams('/test-params/query')
 
 const stripRest = ref(false)
 
@@ -54,6 +57,14 @@ function clearIds() {
 
 <template>
   <h1>Query param parsers</h1>
+
+  <label>
+    Page
+    <input type="number" v-model.number="page" />
+  </label>
+  <span v-if="pending">Updating query</span>
+  <button @click="patch({ page: 1, tag: ['vue'] })">Set page and tag</button>
+  <button @click="reset()">Reset query</button>
 
   <label>
     <input type="checkbox" v-model="stripRest" />

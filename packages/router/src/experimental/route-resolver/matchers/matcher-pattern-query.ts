@@ -46,7 +46,12 @@ export class MatcherPatternQueryParam<
   }
 
   match(query: MatcherQueryParams): Record<ParamName, T> {
-    const queryValue: MatcherQueryParamsValue | undefined = query[this.queryKey]
+    const queryValue: MatcherQueryParamsValue | undefined = Object.hasOwn(
+      query,
+      this.queryKey
+    )
+      ? query[this.queryKey]
+      : undefined
 
     // normalize the value coming from the query based on the expected format
     // value => keep the last value if multiple
@@ -127,7 +132,9 @@ export class MatcherPatternQueryParam<
     params: Record<ParamName, T>,
     options?: { clearOnDefault?: boolean }
   ): MatcherQueryParams {
-    const paramValue = params[this.paramName]
+    const paramValue = Object.hasOwn(params, this.paramName)
+      ? params[this.paramName]
+      : undefined
 
     if (
       paramValue === undefined ||

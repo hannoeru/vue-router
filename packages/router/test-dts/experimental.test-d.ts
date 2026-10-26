@@ -2,6 +2,7 @@ import { describe, it, expectTypeOf } from 'vitest'
 import type {
   EXPERIMENTAL_Router,
   EXPERIMENTAL_RouterOptions,
+  QueryStateResult,
 } from 'vue-router/experimental'
 import {
   definePage,
@@ -26,19 +27,23 @@ type ExperimentalRouteRecord<
   ParamsRaw,
   Params,
   ChildrenNames extends string = never,
+  QueryKeys extends keyof Params & keyof ParamsRaw = never,
 > = {
   name: Name
   path: string
   paramsRaw: ParamsRaw
   params: Params
   childrenNames: ChildrenNames
+  queryKeys: QueryKeys
 }
 
 type RouteNamedMap = {
   search: ExperimentalRouteRecord<
     'search',
     { page?: number; tags?: string[]; date?: Date },
-    { page: number; tags: string[]; date: Date | undefined }
+    { page: number; tags: string[]; date: Date | undefined },
+    never,
+    'page' | 'tags' | 'date'
   >
   'optional-number': ExperimentalRouteRecord<
     'optional-number',
@@ -58,14 +63,18 @@ type RouteNamedMap = {
   // id is a path param, page a query param
   user: ExperimentalRouteRecord<
     'user',
-    { id: number; page?: number },
-    { id: number; page: number }
+    { id: number; page?: number; section?: string },
+    { id: number; page: number; section: string | undefined },
+    never,
+    'page'
   >
   users: ExperimentalRouteRecord<'users', {}, {}, 'users-detail'>
   'users-detail': ExperimentalRouteRecord<
     'users-detail',
-    { id: number },
-    { id: number }
+    { id: number; filter?: string },
+    { id: number; filter: string | undefined },
+    never,
+    'filter'
   >
 }
 
@@ -93,30 +102,57 @@ declare module 'vue-router' {
 describe('query state inference from the public package', () => {
   it('infers parsed values and rejects invalid names, keys and values', () => {
     const page = useQueryParam('search', 'page')
-    expectTypeOf(page).toExtend<Ref<number>>()
-    expectTypeOf(page.value).toEqualTypeOf<number>()
-    const [value, controls] = page
-    expectTypeOf(value.value).toEqualTypeOf<number>()
-    expectTypeOf(controls.update(2)).toEqualTypeOf<Promise<void>>()
+    expectTypeOf(page.state).toExtend<Ref<number, number | undefined>>()
+    expectTypeOf(page.state.value).toEqualTypeOf<number>()
+    expectTypeOf(page.update(2)).toEqualTypeOf<Promise<QueryStateResult>>()
+    page.state.value = undefined
+    page.update(undefined)
     const tags = useQueryParam('search', 'tags')
-    expectTypeOf(tags.value).toEqualTypeOf<string[]>()
+    expectTypeOf(tags.state.value).toEqualTypeOf<readonly string[]>()
     const date = useQueryParam('search', 'date')
-    expectTypeOf(date.value).toEqualTypeOf<Date | undefined>()
+    expectTypeOf(date.state.value).toEqualTypeOf<Date | undefined>()
     const route = useRoute('search')
-    expectTypeOf(page.value).toEqualTypeOf<typeof route.params.page>()
+    expectTypeOf(page.state.value).toEqualTypeOf<typeof route.params.page>()
     const state = useQueryParams('search')
-    expectTypeOf(toRefs(state).tags.value).toEqualTypeOf<string[]>()
-    state.$patch({ page: 2 })
+    expectTypeOf(toRefs(state.state).tags.value).toEqualTypeOf<
+      readonly string[]
+    >()
+    state.patch({ page: 2 })
+    state.patch({ page: undefined })
+    state.state.tags = ['vue']
+    // @ts-expect-error: nested arrays are read only
+    state.state.tags.push('router')
     // @ts-expect-error: parsed page is a number
-    page.value = '2'
+    page.state.value = '2'
     // @ts-expect-error: update accepts parsed values
-    controls.update('2')
+    page.update('2')
     // @ts-expect-error: unknown route
     useQueryParam('missing', 'page')
     // @ts-expect-error: unknown param
     useQueryParam('search', 'missing')
     // @ts-expect-error: array elements are strings
-    state.$patch({ tags: [1] })
+    state.patch({ tags: [1] })
+    // @ts-expect-error: path params are not query params
+    useQueryParam('user', 'id')
+    // @ts-expect-error: hash params are not query params
+    useQueryParam('user', 'section')
+    // @ts-expect-error: child query params are not available on the parent
+    useQueryParam('users', 'filter')
+    expectTypeOf(useQueryParams('user').state).toEqualTypeOf<{ page: number }>()
+    expectTypeOf(useQueryParams('users').state).toEqualTypeOf<{}>()
+    expectTypeOf(
+      useQueryParam('users-detail', 'filter').state.value
+    ).toEqualTypeOf<string | undefined>()
+    // @ts-expect-error: child query params cannot be patched through the parent
+    useQueryParams('users').patch({ filter: 'vue' })
+    // @ts-expect-error: path params are not exposed in query state
+    useQueryParams('user').state.id
+    // @ts-expect-error: hash params are not exposed in query state
+    useQueryParams('user').state.section
+    // @ts-expect-error: path params cannot be patched
+    useQueryParams('user').patch({ id: 1 })
+    // @ts-expect-error: hash params cannot be patched
+    useQueryParams('user').patch({ section: 'intro' })
   })
 })
 
@@ -274,7 +310,11 @@ describe('route record props', () => {
       props: {
         default: to => {
           expectTypeOf(to.name).toEqualTypeOf<'user'>()
-          expectTypeOf(to.params).toEqualTypeOf<{ id: number; page: number }>()
+          expectTypeOf(to.params).toEqualTypeOf<{
+            id: number
+            page: number
+            section: string | undefined
+          }>()
           return { id: to.params.id }
         },
       },

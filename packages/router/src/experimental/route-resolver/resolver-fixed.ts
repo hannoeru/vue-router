@@ -190,7 +190,7 @@ export function createFixedResolver<
     const hashParams = record.hash?.match(url.hash)
     const matched = buildMatched(record)
     const queryParams: MatcherQueryParams = assign(
-      {},
+      Object.create(null),
       ...matched.flatMap(record =>
         record.query?.map(query => query.match(url.query))
       )
@@ -267,10 +267,11 @@ export function createFixedResolver<
       )
       let matched = buildMatched(record)
       // parser.set() can return non array values
-      const queryRaw = {
-        ...currentLocation?.query,
-        ...to.query,
-      }
+      const queryRaw = assign(
+        Object.create(null),
+        currentLocation?.query,
+        to.query
+      )
       for (const record of matched) {
         for (const matcher of record.query ?? []) {
           if (matcher instanceof MatcherPatternQueryParam) {

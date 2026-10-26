@@ -1006,6 +1006,44 @@ describe('generateRouteNamedMap', () => {
       experimental: { paramParsers: true },
     })
 
+    it('limits query keys to the exact route and inherited query declarations', () => {
+      const tree = new PrefixTree(OPTIONS_WITH_PARSERS)
+      const parent = tree.insert('[id]', 'parent.vue')
+      parent.value.setEditOverride('params', {
+        query: { page: { parser: 'int', default: '1' } },
+        hash: { section: {} },
+      })
+      const child = tree.insert('[id]/list', 'child.vue')
+      child.value.setEditOverride('params', {
+        query: { tags: { format: 'array' } },
+      })
+      expect(
+        formatExports(
+          generateRouteNamedMap(tree, OPTIONS_WITH_PARSERS, new Map())
+        )
+      ).toMatchInlineSnapshot(`
+        "export interface RouteNamedMap {
+          '/[id]': RouteRecordInfo<
+            '/[id]',
+            '/:id',
+            { 'id': string, 'page'?: number, 'section'?: string | undefined },
+            { 'id': string, 'page': number, 'section': string | undefined },
+            | '/[id]/list',
+            | 'page'
+          >,
+          '/[id]/list': RouteRecordInfo<
+            '/[id]/list',
+            '/:id/list',
+            { 'id': string, 'page'?: number, 'tags'?: string[] | undefined },
+            { 'id': string, 'page': number, 'tags': string[] | undefined },
+            | never,
+            | 'page'
+            | 'tags'
+          >,
+        }"
+      `)
+    })
+
     it('includes undefined for optional query params without default', () => {
       const tree = new PrefixTree(OPTIONS_WITH_PARSERS)
       const node = tree.insert('search', 'search.vue')
@@ -1023,7 +1061,8 @@ describe('generateRouteNamedMap', () => {
             '/search',
             { 'q'?: string | undefined },
             { 'q': string | undefined },
-            | never
+            | never,
+            | 'q'
           >,
         }"
       `)
@@ -1046,7 +1085,8 @@ describe('generateRouteNamedMap', () => {
             '/search',
             { 'limit'?: number },
             { 'limit': number },
-            | never
+            | never,
+            | 'limit'
           >,
         }"
       `)
@@ -1069,7 +1109,8 @@ describe('generateRouteNamedMap', () => {
             '/search',
             { 'q': string },
             { 'q': string },
-            | never
+            | never,
+            | 'q'
           >,
         }"
       `)
@@ -1092,7 +1133,8 @@ describe('generateRouteNamedMap', () => {
             '/search',
             { 'q'?: string | undefined },
             { 'q': string | undefined },
-            | never
+            | never,
+            | 'q'
           >,
         }"
       `)
@@ -1120,7 +1162,11 @@ describe('generateRouteNamedMap', () => {
             '/search',
             { 'filter'?: number | undefined, 'page'?: number, 'q': string, 'sort'?: string | undefined },
             { 'filter': number | undefined, 'page': number, 'q': string, 'sort': string | undefined },
-            | never
+            | never,
+            | 'filter'
+            | 'page'
+            | 'q'
+            | 'sort'
           >,
         }"
       `)
@@ -1146,7 +1192,9 @@ describe('generateRouteNamedMap', () => {
             '/search',
             { 'ids': number[], 'tags'?: string[] | undefined },
             { 'ids': number[], 'tags': string[] | undefined },
-            | never
+            | never,
+            | 'ids'
+            | 'tags'
           >,
         }"
       `)
@@ -1172,14 +1220,16 @@ describe('generateRouteNamedMap', () => {
             '/org',
             { 'q'?: string | undefined },
             { 'q': string | undefined },
-            | '/org/list'
+            | '/org/list',
+            | 'q'
           >,
           '/org/list': RouteRecordInfo<
             '/org/list',
             '/org/list',
             { 'q'?: number | undefined },
             { 'q': number | undefined },
-            | never
+            | never,
+            | 'q'
           >,
         }"
       `)
@@ -1208,6 +1258,7 @@ describe('generateRouteNamedMap', () => {
             '/:*',
             Record<never, never>,
             Record<never, never>,
+            | never,
             | never
           >,
         }"

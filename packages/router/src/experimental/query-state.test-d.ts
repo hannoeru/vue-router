@@ -1,63 +1,81 @@
 import { expectTypeOf, it } from 'vitest'
 import { toRefs, type ComputedRef, type WritableComputedRef } from 'vue'
-import { useRoute } from '../useApi'
 import {
   useQueryParam,
   useQueryParams,
-  type QueryParamRef,
+  type QueryParamState,
   type QueryParamsState,
+  type QueryStateResult,
 } from './query-state'
 
-it('uses the same route param inference as useRoute', () => {
-  const route = useRoute('search')
-  const ref = useQueryParam('search', 'page')
-  expectTypeOf(ref.value).toEqualTypeOf<typeof route.params.page>()
-  const [page, control] = ref
-  expectTypeOf(page).toEqualTypeOf<
-    WritableComputedRef<typeof route.params.page>
-  >()
-  expectTypeOf(control.pending).toEqualTypeOf<ComputedRef<boolean>>()
-  expectTypeOf(control.update(page.value)).toEqualTypeOf<Promise<void>>()
-  expectTypeOf(control.reset()).toEqualTypeOf<Promise<void>>()
-  expectTypeOf(control.flush()).toEqualTypeOf<Promise<void>>()
-  const state = useQueryParams('search')
-  expectTypeOf(state.page).toEqualTypeOf<typeof route.params.page>()
-  expectTypeOf(state.$patch({ page: route.params.page })).toEqualTypeOf<
-    Promise<void>
-  >()
-  expectTypeOf(state.$reset()).toEqualTypeOf<Promise<void>>()
-  expectTypeOf(state.$pending).toEqualTypeOf<boolean>()
-  const refs = toRefs(state)
-  expectTypeOf(refs.page.value).toEqualTypeOf<typeof route.params.page>()
+it('keeps state separate from controls', () => {
+  const result = useQueryParam('search', 'page')
+  expectTypeOf(result.pending).toEqualTypeOf<ComputedRef<boolean>>()
+  expectTypeOf(result.flush()).toEqualTypeOf<Promise<QueryStateResult>>()
+  expectTypeOf(result.reset()).toEqualTypeOf<Promise<QueryStateResult>>()
+  const group = useQueryParams('search')
+  expectTypeOf(group.pending).toEqualTypeOf<ComputedRef<boolean>>()
+  expectTypeOf(group.flush()).toEqualTypeOf<Promise<QueryStateResult>>()
+  expectTypeOf(group.reset()).toEqualTypeOf<Promise<QueryStateResult>>()
+  // @ts-expect-error: results are not tuples
+  const [_state] = result
+  // @ts-expect-error: results have no array methods
+  result.map(value => value)
   // @ts-expect-error: unsupported history mode
   useQueryParam('search', 'page', { history: 'append' })
   // @ts-expect-error: debounce is a duration in milliseconds
   useQueryParams('search', { debounce: true })
 })
 
-it('preserves rich parsed value types in refs and objects', () => {
-  const page = null! as QueryParamRef<number>
-  page.value = 2
-  const [value, control] = page
-  expectTypeOf(value.value).toEqualTypeOf<number>()
-  expectTypeOf(control.update(3)).toEqualTypeOf<Promise<void>>()
-  // @ts-expect-error: parsed numbers cannot be set to raw strings
-  page.value = '2'
-  // @ts-expect-error: update takes the parsed type
-  control.update('3')
-  const state = null! as QueryParamsState<{
+it('preserves parsed reads and raw writes', () => {
+  const page = null! as QueryParamState<number, number | undefined>
+  expectTypeOf(page.state).toEqualTypeOf<
+    WritableComputedRef<number, number | undefined>
+  >()
+  page.state.value = 2
+  page.state.value = undefined
+  expectTypeOf(page.update(3)).toEqualTypeOf<Promise<QueryStateResult>>()
+  page.update(undefined)
+  // @ts-expect-error: parsed numbers cannot be set to URL strings
+  page.state.value = '2'
+  // @ts-expect-error: update takes the parser input type
+  page.update('3')
+  // @ts-expect-error: pending is read only
+  page.pending.value = false
+})
+
+it('makes nested reads readonly and top-level values writable', () => {
+  const tags = null! as QueryParamState<string[]>
+  expectTypeOf(tags.state.value).toEqualTypeOf<readonly string[]>()
+  tags.state.value = ['vue']
+  // @ts-expect-error: nested arrays are read only
+  tags.state.value.push('router')
+
+  const result = null! as QueryParamsState<{
     page: number
     tags: string[]
+    filters: { range: { min: number }; tags: string[] }
     date: Date | undefined
+    $patch: string
   }>
-  state.$patch({ page: 2, tags: ['vue'] })
-  const refs = toRefs(state)
+  result.patch({ page: 2, tags: ['vue'], $patch: 'query value' })
+  result.state.tags = ['router']
+  result.state.filters = { range: { min: 1 }, tags: [] }
+  const refs = toRefs(result.state)
   expectTypeOf(refs.page.value).toEqualTypeOf<number>()
+  expectTypeOf(refs.tags.value).toEqualTypeOf<readonly string[]>()
   expectTypeOf(refs.date.value).toEqualTypeOf<Date | undefined>()
+  expectTypeOf(result.state.$patch).toEqualTypeOf<string>()
+  // @ts-expect-error: nested arrays are read only
+  result.state.tags.push('router')
+  // @ts-expect-error: nested object properties are read only
+  result.state.filters.range.min = 2
+  // @ts-expect-error: nested object arrays are read only
+  result.state.filters.tags.push('vue')
   // @ts-expect-error: partial updates preserve field types
-  state.$patch({ page: '2' })
+  result.patch({ page: '2' })
   // @ts-expect-error: unknown query key
-  state.$patch({ missing: 1 })
+  result.patch({ missing: 1 })
   // @ts-expect-error: pending is read only
-  state.$pending = false
+  result.pending.value = false
 })

@@ -78,8 +78,9 @@ export {
   useQueryParam,
   useQueryParams,
   type QueryStateOptions,
+  type QueryStateResult,
   type QueryParamControls,
-  type QueryParamRef,
+  type QueryParamState,
   type QueryParamsState,
 } from './query-state'
 

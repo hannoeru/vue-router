@@ -64,7 +64,9 @@ export class MatcherPatternHashParam<
   build(params: {
     [K in ParamName]?: HashParamValue<T, TDefault, TRequired> | undefined
   }): string {
-    const value = params[this.paramName]
+    const value = Object.hasOwn(params, this.paramName)
+      ? params[this.paramName]
+      : undefined
     if (value == null) return ''
     const content = this.parser.set ? this.parser.set(value) : String(value)
     return content == null
