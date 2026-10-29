@@ -650,10 +650,13 @@ export interface EXPERIMENTAL_Router
   readonly options: EXPERIMENTAL_RouterOptions
 
   /** @internal */
-  _beforeQueryStateNavigation?: (
-    to: RouteLocation,
-    origin?: symbol
-  ) => (() => void) | void
+  _beforeQueryStateNavigation?: (to: RouteLocation, origin?: symbol) => void
+
+  /** @internal */
+  _afterQueryStateNavigation?: () => void
+
+  /** @internal */
+  readonly _pendingQueryStateNavigations: number
 
   /** @internal */
   _withQueryStateNavigation<T>(origin: symbol | undefined, fn: () => T): T
@@ -792,6 +795,16 @@ export function experimental_createRouter(
   }
 
   let invocationOrigin: symbol | undefined
+  let pendingQueryStateNavigations = 0
+
+  function beginQueryStateNavigation(to: RouteLocation, origin?: symbol) {
+    pendingQueryStateNavigations++
+    router._beforeQueryStateNavigation?.(to, origin)
+    return () => {
+      pendingQueryStateNavigations--
+      router._afterQueryStateNavigation?.()
+    }
+  }
 
   function withQueryStateNavigation<T>(
     origin: symbol | undefined,
@@ -853,7 +866,7 @@ export function experimental_createRouter(
     const force: boolean | undefined = (to as RouteLocationOptions).force
 
     const shouldRedirect = handleRedirectRecord(to, from)
-    const finishQueryState = router._beforeQueryStateNavigation?.(to, origin)
+    const finishQueryState = beginQueryStateNavigation(to, origin)
 
     if (shouldRedirect) {
       try {
@@ -871,9 +884,9 @@ export function experimental_createRouter(
           // keep original redirectedFrom if it exists
           redirectedFrom || to,
           origin
-        ).finally(() => finishQueryState?.())
+        ).finally(finishQueryState)
       } catch (error) {
-        finishQueryState?.()
+        finishQueryState()
         throw error
       }
     }
@@ -987,7 +1000,7 @@ export function experimental_createRouter(
         )
         return failure
       })
-      .finally(() => finishQueryState?.())
+      .finally(finishQueryState)
   }
 
   /**
@@ -1219,7 +1232,7 @@ export function experimental_createRouter(
         toLocation,
         router.currentRoute.value
       )
-      const finishQueryState = router._beforeQueryStateNavigation?.(toLocation)
+      const finishQueryState = beginQueryStateNavigation(toLocation)
       if (shouldRedirect) {
         try {
           pushWithRedirect(
@@ -1231,10 +1244,10 @@ export function experimental_createRouter(
             true,
             toLocation
           )
-            .finally(() => finishQueryState?.())
+            .finally(finishQueryState)
             .catch(noop)
         } catch (error) {
-          finishQueryState?.()
+          finishQueryState()
           throw error
         }
         return
@@ -1358,7 +1371,7 @@ export function experimental_createRouter(
             failure
           )
         })
-        .finally(() => finishQueryState?.())
+        .finally(finishQueryState)
         // avoid warnings in the console about uncaught rejections, they are logged by triggerErrors
         .catch(noop)
     })
@@ -1465,6 +1478,9 @@ export function experimental_createRouter(
     currentRoute,
     listening: true,
     _withQueryStateNavigation: withQueryStateNavigation,
+    get _pendingQueryStateNavigations() {
+      return pendingQueryStateNavigations
+    },
 
     hasRoute: name => !!resolver.getRoute(name),
     getRoutes: () => resolver.getRoutes(),

@@ -1359,6 +1359,98 @@ it('resumes scheduling after a record redirect target fails to resolve', async (
   expect(q.state.value).toBe('after-error')
 })
 
+it.each(['success', 'abort', 'error', 'leave'] as const)(
+  'waits for navigation that started before the first binding was created: %s',
+  async outcome => {
+    const { router, use } = await setup()
+    const error = new Error('external navigation failed')
+    router.onError(() => {})
+    let release!: () => void
+    const entered = new Promise<void>(resolve => {
+      const remove = router.beforeEach(async () => {
+        remove()
+        resolve()
+        await new Promise<void>(resolve => {
+          release = resolve
+        })
+        if (outcome === 'error') throw error
+        return outcome === 'abort' ? false : undefined
+      })
+    })
+    const external = router.push(
+      outcome === 'leave' ? '/other' : '/search/7?tag=vue'
+    )
+    const result = external.catch(error => error)
+    await entered
+    const q = use(() => useQueryParam('search', 'q'))
+    const write = q.update('typed-later')
+    try {
+      await flushPromises()
+      expect(router.currentRoute.value.params.q).toBe('')
+      expect(q.state.value).toBe('typed-later')
+      expect(q.pending.value).toBe(true)
+    } finally {
+      release()
+      await Promise.all([result, write])
+    }
+    if (outcome === 'error') await expect(result).resolves.toBe(error)
+    else if (outcome === 'abort')
+      await expect(result).resolves.toMatchObject({
+        type: NavigationFailureType.aborted,
+      })
+    else await expect(result).resolves.toBeUndefined()
+    if (outcome === 'leave') {
+      await expect(write).resolves.toEqual({ cancelled: true })
+      expect(router.currentRoute.value.name).toBe('other')
+    } else {
+      await expect(write).resolves.toBeUndefined()
+      expect(router.currentRoute.value.params).toMatchObject({
+        q: 'typed-later',
+        tags: outcome === 'success' ? ['vue'] : [],
+      })
+    }
+    expect(q.pending.value).toBe(false)
+  }
+)
+
+it('waits for history traversal that started before the first binding was created', async () => {
+  const { router, use } = await setup()
+  await router.push('/search/7?tag=vue')
+  let release!: () => void
+  const entered = new Promise<void>(resolve => {
+    const remove = router.beforeEach(async () => {
+      remove()
+      resolve()
+      await new Promise<void>(resolve => {
+        release = resolve
+      })
+    })
+  })
+  const navigated = new Promise<void>(resolve => {
+    const remove = router.afterEach((_to, _from, failure) => {
+      remove()
+      expect(failure).toBeUndefined()
+      resolve()
+    })
+  })
+  router.back()
+  await entered
+  const q = use(() => useQueryParam('search', 'q'))
+  const write = q.update('typed-later')
+  try {
+    await flushPromises()
+    expect(router.currentRoute.value.params.q).toBe('')
+    expect(q.pending.value).toBe(true)
+  } finally {
+    release()
+    await Promise.all([navigated, write])
+  }
+  expect(router.currentRoute.value.query).toEqual({
+    other: ['keep'],
+    q: ['typed-later'],
+  })
+})
+
 it('keeps a same-route write accepted during an external navigation', async () => {
   const { router, use } = await setup()
   const q = use(() => useQueryParam('search', 'q'))

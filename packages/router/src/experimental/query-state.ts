@@ -132,12 +132,10 @@ function createEngine(router: EXPERIMENTAL_Router) {
   let timer: ReturnType<typeof setTimeout> | undefined
   let scheduled = false
   let running = false
-  let externalNavigations = 0
   let activeCommitOrigin: symbol | undefined
 
   router._beforeQueryStateNavigation = (to, origin) => {
     if (origin !== undefined && origin === activeCommitOrigin) return
-    externalNavigations++
     const current = experimental_normalizeQuery(router.currentRoute.value.query)
     const target = experimental_normalizeQuery(to.query)
     cancelKeys((name, key) => {
@@ -150,11 +148,9 @@ function createEngine(router: EXPERIMENTAL_Router) {
         !!before?.some((value, index) => value !== after?.[index])
       )
     })
-    return () => {
-      externalNavigations--
-      cancelKeys(name => name !== router.currentRoute.value.name)
-      schedule()
-    }
+  }
+  router._afterQueryStateNavigation = () => {
+    cancelKeys(name => name !== router.currentRoute.value.name)
   }
   router._cancelQueryStateNavigation = () => {
     cancelKeys(() => true)
@@ -200,7 +196,7 @@ function createEngine(router: EXPERIMENTAL_Router) {
   function schedule() {
     if (timer !== undefined) clearTimeout(timer)
     timer = undefined
-    if (!queue.size || running || externalNavigations) return
+    if (!queue.size || running || router._pendingQueryStateNavigations) return
     const due = Math.min(...[...queue].map(deadline))
     if (due <= Date.now()) {
       if (!scheduled) {
@@ -355,7 +351,7 @@ function createEngine(router: EXPERIMENTAL_Router) {
   }
 
   function flush() {
-    if (running || externalNavigations) return
+    if (running || router._pendingQueryStateNavigations) return
     const groups = [...queue].filter(group => deadline(group) <= Date.now())
     if (!groups.length) {
       schedule()
