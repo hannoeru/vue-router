@@ -11,11 +11,13 @@ import {
 it('keeps state separate from controls', () => {
   const result = useQueryParam('search', 'page')
   expectTypeOf(result.pending).toEqualTypeOf<ComputedRef<boolean>>()
-  expectTypeOf(result.flush()).toEqualTypeOf<Promise<QueryStateResult>>()
+  // @ts-expect-error: flushing is internal
+  result.flush()
   expectTypeOf(result.reset()).toEqualTypeOf<Promise<QueryStateResult>>()
   const group = useQueryParams('search')
   expectTypeOf(group.pending).toEqualTypeOf<ComputedRef<boolean>>()
-  expectTypeOf(group.flush()).toEqualTypeOf<Promise<QueryStateResult>>()
+  // @ts-expect-error: flushing is internal
+  group.flush()
   expectTypeOf(group.reset()).toEqualTypeOf<Promise<QueryStateResult>>()
   // @ts-expect-error: results are not tuples
   const [_state] = result
@@ -23,6 +25,10 @@ it('keeps state separate from controls', () => {
   result.map(value => value)
   // @ts-expect-error: unsupported history mode
   useQueryParam('search', 'page', { history: 'append' })
+  // @ts-expect-error: throttle is not supported
+  useQueryParam('search', 'page', { throttle: 100 })
+  // @ts-expect-error: scroll uses the router policy
+  useQueryParams('search', { scroll: false })
   // @ts-expect-error: debounce is a duration in milliseconds
   useQueryParams('search', { debounce: true })
 })

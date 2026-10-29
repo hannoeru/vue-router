@@ -93,10 +93,6 @@ import type {
 } from './route-props'
 import type { RecordName } from './route-resolver/resolver-abstract'
 import type { RouteLocationNormalizedLoadedGeneric } from '../typed-routes'
-import {
-  QUERY_STATE_SCROLL,
-  type QueryStateNavigation,
-} from './query-state-internals'
 
 /**
  * resolve, reject arguments of Promise constructor
@@ -654,7 +650,10 @@ export interface EXPERIMENTAL_Router
   readonly options: EXPERIMENTAL_RouterOptions
 
   /** @internal */
-  _beforeQueryStateNavigation?: (origin?: symbol) => Promise<void>
+  _beforeQueryStateNavigation?: (
+    to: RouteLocation,
+    origin?: symbol
+  ) => (() => void) | void
 
   /** @internal */
   _withQueryStateNavigation<T>(origin: symbol | undefined, fn: () => T): T
@@ -809,18 +808,12 @@ export function experimental_createRouter(
 
   const push = (...args: _resolveArgs) => {
     const origin = invocationOrigin
-    const flushed = router._beforeQueryStateNavigation?.(origin)
-    const navigate = () =>
-      pushWithRedirect(resolve(...args), undefined, undefined, origin)
-    return flushed ? flushed.then(navigate) : navigate()
+    return pushWithRedirect(resolve(...args), undefined, undefined, origin)
   }
 
   const replace = (...args: _resolveArgs) => {
     const origin = invocationOrigin
-    const flushed = router._beforeQueryStateNavigation?.(origin)
-    const navigate = () =>
-      pushWithRedirect(resolve(...args), true, undefined, origin)
-    return flushed ? flushed.then(navigate) : navigate()
+    return pushWithRedirect(resolve(...args), true, undefined, origin)
   }
 
   function handleRedirectRecord(
@@ -860,23 +853,29 @@ export function experimental_createRouter(
     const force: boolean | undefined = (to as RouteLocationOptions).force
 
     const shouldRedirect = handleRedirectRecord(to, from)
+    const finishQueryState = router._beforeQueryStateNavigation?.(to, origin)
 
     if (shouldRedirect) {
-      return pushWithRedirect(
-        {
-          // @ts-expect-error: FIXME: refactor location types
-          ...resolve(shouldRedirect),
-          state:
-            typeof shouldRedirect === 'object'
-              ? assign({}, data, shouldRedirect.state)
-              : data,
-          force,
-        },
-        replace,
-        // keep original redirectedFrom if it exists
-        redirectedFrom || to,
-        origin
-      )
+      try {
+        return pushWithRedirect(
+          {
+            // @ts-expect-error: FIXME: refactor location types
+            ...resolve(shouldRedirect),
+            state:
+              typeof shouldRedirect === 'object'
+                ? assign({}, data, shouldRedirect.state)
+                : data,
+            force,
+          },
+          replace,
+          // keep original redirectedFrom if it exists
+          redirectedFrom || to,
+          origin
+        ).finally(() => finishQueryState?.())
+      } catch (error) {
+        finishQueryState?.()
+        throw error
+      }
     }
 
     // if it was a redirect we already called `pushWithRedirect` above
@@ -902,8 +901,7 @@ export function experimental_createRouter(
         true,
         // This cannot be the first navigation because the initial location
         // cannot be manually navigated to
-        false,
-        (to as QueryStateNavigation)[QUERY_STATE_SCROLL]
+        false
       )
     }
 
@@ -989,6 +987,7 @@ export function experimental_createRouter(
         )
         return failure
       })
+      .finally(() => finishQueryState?.())
   }
 
   /**
@@ -1198,13 +1197,7 @@ export function experimental_createRouter(
 
     // accept current navigation
     currentRoute.value = toLocation
-    handleScroll(
-      toLocation,
-      from,
-      isPush,
-      isFirstNavigation,
-      (toLocation as QueryStateNavigation)[QUERY_STATE_SCROLL]
-    )
+    handleScroll(toLocation, from, isPush, isFirstNavigation)
 
     markAsReady()
   }
@@ -1216,7 +1209,6 @@ export function experimental_createRouter(
     if (removeHistoryListener) return
     removeHistoryListener = routerHistory.listen((to, _from, info) => {
       if (!router.listening) return
-      router._cancelQueryStateNavigation?.()
       // cannot be a redirect route because it was in history
       const toLocation = resolve(to) as RouteLocationNormalized
 
@@ -1227,16 +1219,24 @@ export function experimental_createRouter(
         toLocation,
         router.currentRoute.value
       )
+      const finishQueryState = router._beforeQueryStateNavigation?.(toLocation)
       if (shouldRedirect) {
-        pushWithRedirect(
-          assign(
-            // @ts-expect-error: FIXME: refactor location types
-            resolve(shouldRedirect),
-            { force: true }
-          ),
-          true,
-          toLocation
-        ).catch(noop)
+        try {
+          pushWithRedirect(
+            assign(
+              // @ts-expect-error: FIXME: refactor location types
+              resolve(shouldRedirect),
+              { force: true }
+            ),
+            true,
+            toLocation
+          )
+            .finally(() => finishQueryState?.())
+            .catch(noop)
+        } catch (error) {
+          finishQueryState?.()
+          throw error
+        }
         return
       }
 
@@ -1272,45 +1272,46 @@ export function experimental_createRouter(
 
             // the error is already handled by router.push we just want to avoid
             // logging the error
-            pushWithRedirect(
-              assign(
-                resolve(
-                  // @ts-expect-error: FIXME: refactor location types
-                  (error as NavigationRedirectError).to,
-                  isAbsoluteLocation(
-                    // @ts-expect-error: FIXME: refactor location types to stricter
-                    (error as NavigationRedirectError).to
-                  )
-                    ? undefined
-                    : toLocation
+            return (
+              pushWithRedirect(
+                assign(
+                  resolve(
+                    // @ts-expect-error: FIXME: refactor location types
+                    (error as NavigationRedirectError).to,
+                    isAbsoluteLocation(
+                      // @ts-expect-error: FIXME: refactor location types to stricter
+                      (error as NavigationRedirectError).to
+                    )
+                      ? undefined
+                      : toLocation
+                  ),
+                  {
+                    force: true,
+                  }
                 ),
-                {
-                  force: true,
-                }
-              ),
-              undefined,
-              toLocation
-              // avoid an uncaught rejection, let push call triggerError
+                undefined,
+                toLocation
+                // avoid an uncaught rejection, let push call triggerError
+              )
+                .then(failure => {
+                  // manual change in hash history #916 ending up in the URL not
+                  // changing, but it was changed by the manual url change, so we
+                  // need to manually change it ourselves
+                  if (
+                    isNavigationFailure(
+                      failure,
+                      ErrorTypes.NAVIGATION_ABORTED |
+                        ErrorTypes.NAVIGATION_DUPLICATED
+                    ) &&
+                    !info.delta &&
+                    info.type === NavigationType.pop
+                  ) {
+                    routerHistory.go(-1, false)
+                  }
+                })
+                // avoid the then branch
+                .then(() => Promise.reject())
             )
-              .then(failure => {
-                // manual change in hash history #916 ending up in the URL not
-                // changing, but it was changed by the manual url change, so we
-                // need to manually change it ourselves
-                if (
-                  isNavigationFailure(
-                    failure,
-                    ErrorTypes.NAVIGATION_ABORTED |
-                      ErrorTypes.NAVIGATION_DUPLICATED
-                  ) &&
-                  !info.delta &&
-                  info.type === NavigationType.pop
-                ) {
-                  routerHistory.go(-1, false)
-                }
-              })
-              .catch(noop)
-            // avoid the then branch
-            return Promise.reject()
           }
           // do not restore history on unknown direction
           if (info.delta) {
@@ -1357,6 +1358,7 @@ export function experimental_createRouter(
             failure
           )
         })
+        .finally(() => finishQueryState?.())
         // avoid warnings in the console about uncaught rejections, they are logged by triggerErrors
         .catch(noop)
     })
@@ -1427,12 +1429,11 @@ export function experimental_createRouter(
     to: RouteLocationNormalizedLoaded,
     from: RouteLocationNormalizedLoaded,
     isPush: boolean,
-    isFirstNavigation: boolean,
-    scroll = true
+    isFirstNavigation: boolean
   ): // the return is not meant to be used
   Promise<unknown> {
     const { scrollBehavior } = options
-    if (!isBrowser || !scrollBehavior || !scroll) return Promise.resolve()
+    if (!isBrowser || !scrollBehavior) return Promise.resolve()
 
     const scrollPosition: _ScrollPositionNormalized | null =
       (!isPush && getSavedScrollPosition(getScrollKey(to.fullPath, 0))) ||
@@ -1454,12 +1455,7 @@ export function experimental_createRouter(
   }
 
   const go = (delta: number) => {
-    const flushed = router._beforeQueryStateNavigation?.()
-    if (flushed) {
-      flushed.then(() => routerHistory.go(delta)).catch(noop)
-    } else {
-      routerHistory.go(delta)
-    }
+    routerHistory.go(delta)
   }
 
   let started: boolean | undefined
@@ -1530,6 +1526,7 @@ export function experimental_createRouter(
         installedApps.delete(app)
         // the router is not attached to an app anymore
         if (installedApps.size < 1) {
+          router._cancelQueryStateNavigation?.()
           // invalidate the current navigation
           pendingLocation = START_LOCATION_NORMALIZED
           removeHistoryListener && removeHistoryListener()

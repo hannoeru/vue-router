@@ -37,16 +37,14 @@ it.each([false, true])(
       const app = createSSRApp({
         setup() {
           const single = useQueryParam('search', 'q', { debounce: 60000 })
-          const group = useQueryParams('search', { throttle: Infinity })
+          const group = useQueryParams('search', { debounce: 60000 })
           single.state.value = 'ignored'
           group.state.q = 'ignored'
           promises.push(
             single.update('ignored'),
             group.patch({ q: 'ignored' }),
             single.reset(),
-            group.reset(),
-            single.flush(),
-            group.flush()
+            group.reset()
           )
           expect(single.pending.value).toBe(false)
           expect(group.pending.value).toBe(false)
@@ -55,7 +53,7 @@ it.each([false, true])(
       })
       app.use(router)
       expect(await renderToString(app)).toBe('<p>server</p>')
-      expect(await Promise.all(promises)).toEqual(Array(6).fill(undefined))
+      expect(await Promise.all(promises)).toEqual(Array(4).fill(undefined))
       expect(router.currentRoute.value.fullPath).toBe('/search?q=server')
       expect(vi.getTimerCount()).toBe(0)
     } finally {

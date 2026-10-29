@@ -21,10 +21,6 @@ import type { Router } from '../router'
 import { noop, toValueWithArgs } from '../utils'
 import type { EXPERIMENTAL_Router } from './router'
 import { onRouteRendered } from './on-route-rendered'
-import {
-  QUERY_STATE_SCROLL,
-  type QueryStateNavigation,
-} from './query-state-internals'
 
 /**
  * Saved position for one property of {@link ScrollRestorationSessionEntry}.
@@ -544,7 +540,6 @@ function useScrollRestorationClient<
 
   onRouteRendered(to => {
     if (
-      (to as QueryStateNavigation)[QUERY_STATE_SCROLL] !== false &&
       !toValue(optionsWithDefaults.manual) &&
       isActive(optionsWithDefaults, to)
     ) {
