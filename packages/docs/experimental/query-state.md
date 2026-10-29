@@ -30,7 +30,7 @@ Generated route types identify query keys separately from path and hash keys. A 
 
 ## One query param
 
-The result contains a plain writable ref named `state` and separate controls. The ref works with `v-model`:
+The result contains a writable computed ref named `state` and separate controls. The ref works with `v-model`:
 
 ```vue
 <script setup lang="ts">
@@ -40,7 +40,6 @@ const {
   state: q,
   pending,
   update,
-  flush,
   reset,
 } = useQueryParam('/search', 'q', { debounce: 250 })
 </script>
@@ -51,28 +50,26 @@ const {
 ```
 
 ```ts
-const { state: page, update, flush, reset } = useQueryParam('/search', 'page')
+const { state: page, update, reset } = useQueryParam('/search', 'page')
 
 page.value = 2
 await update(3, { history: 'push' })
-await flush()
 await reset()
 ```
 
 - `pending` is a readonly computed ref. It stays true while the param is queued or its navigation is in progress.
-- `update(value, options?)` returns the batch's settlement promise. Writes in one pending batch share this promise. The last value written to each param wins.
-- `flush()` sends all queued query-state writes for this router without waiting for debounce or throttle limits.
+- `update(value, options?)` returns that write's settlement promise. Writes committed in one batch settle with the same navigation result. Superseded writes to one key settle with the replacement that is eventually committed.
 - `reset(options?)` writes the matcher's default. With no default, it writes `undefined` to remove an optional param. Resetting a required param without a default rejects the promise and leaves the URL unchanged.
 
 ### Write results
 
-`update()`, `patch()`, `reset()`, and `flush()` preserve navigation outcomes. A successful write or a no-op resolves with `undefined`. An aborted or cancelled router navigation resolves with the `NavigationFailure` returned by `router.push()` or `router.replace()`. Pending edits cancelled before navigation resolve with `{ cancelled: true }`. The exported result type is `QueryStateResult = void | NavigationFailure | { readonly cancelled: true }`. Cancellation is not a parser error.
+`update()`, `patch()`, and `reset()` preserve navigation outcomes. A successful write or a no-op resolves with `undefined`. An aborted or cancelled router navigation resolves with the `NavigationFailure` returned by `router.push()` or `router.replace()`. Pending edits cancelled before navigation resolve with `{ cancelled: true }`. The exported result type is `QueryStateResult = void | NavigationFailure | { readonly cancelled: true }`. Cancellation is not a parser error.
 
-A failed navigation removes the optimistic value and restores the committed route value. Parser, validation, or navigation errors that escape the matcher reject the promise. Optional parser failures still use matcher defaults, as they do during ordinary navigation. Ref assignments cannot return promises. Use `update()` to handle errors or inspect navigation outcomes.
+A failed navigation removes the optimistic value and restores the committed route value. Parser, validation, or navigation errors that escape the matcher reject the promise. Optional parser failures still use matcher defaults, as they do during ordinary navigation. Ref assignments cannot return promises. Their rejected writes use Vue's error handling without an unhandled promise rejection. Use `update()` to handle errors or inspect navigation outcomes. A successful redirect counts as success but can change the requested query value.
 
 ## Several query params
 
-`useQueryParams()` returns `{ state, patch, reset, flush, pending }`. The reactive writable `state` object contains only declared query values. Controls have a separate namespace, so a query field named `$patch` is valid.
+`useQueryParams()` returns `{ state, patch, reset, pending }`. The reactive writable `state` object contains only declared query values. Controls have a separate namespace, so query fields named `patch` or `reset` are valid.
 
 ```ts
 import { toRefs } from 'vue'
@@ -82,7 +79,6 @@ const {
   state: query,
   patch,
   reset,
-  flush,
   pending,
 } = useQueryParams('/search', { history: 'replace' })
 const { q, page, tags } = toRefs(query)
@@ -97,7 +93,7 @@ pending.value
 
 `patch()` validates the whole patch before it queues any field. A rejected patch commits nothing. It preserves other query params. `reset()` resets all declared query params to their matcher defaults. Both accept per-call options. `pending` covers all queued or in-progress query-state writes for the route.
 
-Nested arrays and objects are readonly. In-place changes such as `query.tags.push('vue')` cannot change committed route params. Replace the top-level value to schedule a write:
+Nested arrays and plain objects are readonly. Custom class instances are outside this guarantee. In-place changes such as `query.tags.push('vue')` cannot change committed route params. Replace the top-level value to schedule a write:
 
 ```ts
 query.tags = [...query.tags, 'vue']
@@ -107,33 +103,37 @@ query.tags = [...query.tags, 'vue']
 
 Both composables accept the same options. Options on `update()`, `patch()`, and `reset()` override the composable options for that call.
 
-| Option           | Default                          | Behavior                                                                                                                                                                      |
-| ---------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `history`        | `'replace'`                      | Use `'push'` to add a history entry. If any queued write requests push, the batch uses push.                                                                                  |
-| `debounce`       | `0`                              | Wait this many milliseconds after the latest write from this binding. State changes immediately.                                                                              |
-| `throttle`       | `0`                              | Minimum interval in milliseconds between URL writes to this param. The first write does not wait.                                                                             |
-| `scroll`         | `false`                          | False suppresses the legacy scroll callback and automatic scroll restoration for the batch. True permits the router's normal scroll policy. Any true request in a batch wins. |
-| `clearOnDefault` | Matcher setting, normally `true` | Omit a value equal to the default from the URL. Set false to write the default explicitly.                                                                                    |
+| Option           | Default                          | Behavior                                                                                                   |
+| ---------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `history`        | `'replace'`                      | Use `'push'` to add a history entry. If any write in a committed batch requests push, the batch uses push. |
+| `debounce`       | `0`                              | Wait this many milliseconds after the latest write to the same URL key. State changes immediately.         |
+| `clearOnDefault` | Matcher setting, normally `true` | Omit a value equal to the default from the URL. Set false to write the default explicitly.                 |
 
-Wait values must be nonnegative finite numbers, or `Infinity`. Negative values and `NaN` are rejected. `Infinity` disables automatic settlement until an explicit `flush()` or cancellation.
+`debounce` must be finite and non-negative. Negative values, `NaN`, and `Infinity` are rejected. An explicit `debounce: 0` removes the composable's debounce for that call.
 
-If both debounce and throttle are set, a write waits until both limits permit it. All writes in the same tick are batched. The **highest remaining wait** wins across queued fields and bindings. An immediate page write does not pull a delayed search edit forward. It waits with the batch. Use `patch()` for an atomic multi-field edit, or `flush()` to send the pending batch explicitly.
+Eligible writes in one event-loop tick share a navigation. Each key has its own debounce. An immediate page write does not wait for a delayed search edit or commit it early. A new write to the same key restarts its debounce and replaces its queued value. The latest write supplies serialization options, including `clearOnDefault`.
 
-Each binding's latest write can extend its debounce deadline, but a shorter per-call wait does not bring an existing deadline forward. The last written value is used regardless of which binding has the highest wait.
+`patch()` schedules its supplied values as one atomic group with one deadline. Overlapping queued groups merge and use the latest required deadline. Each key retains the deadline of its latest write. Replacing all delayed keys with immediate writes makes the group eligible immediately. Unrelated groups keep their own deadlines.
 
-The scroll option applies only to that navigation attempt. Later ordinary navigations use their own scroll policy.
+Writes received during navigation wait for that navigation to settle and form a later batch. An older batch cannot clear a newer optimistic value.
+
+Query writes use the app's normal `scrollBehavior`. To skip query-only scrolling, compare `to.path` with `from.path` in that callback. There is no query-state scroll option, throttle, or public `flush()`.
 
 State is shared per router. Two components that bind the same route and param see the same optimistic value before the URL changes. Reads use parsed `route.params` with a shared optimistic overlay. The default structural comparison supports primitives, `NaN`, `Date`, arrays, and plain objects. Values that contain `Map`, `Set`, typed arrays, or other rich types need a parser `eq` function. Equal values keep stable computed identities.
 
-A partial update keeps the current path, hash, other parsed params, and undeclared raw query keys. Declared query fields are serialized through their route matchers, including clear-on-default behavior. Changing a default changes the meaning of old links that omit that field.
+A partial update keeps the current path, hash, and unrelated raw query keys, including declared fields that were not written. Updated fields are serialized through their route matchers, including clear-on-default behavior. Changing a default changes the meaning of old links that omit that field.
 
 ## Navigation and scope disposal
 
-Call these composables in component setup or an active effect scope. Scope disposal flushes queued writes. Explicit `flush()` can be awaited before disposal when completion matters.
+Call these composables in component setup or an active effect scope. Scope disposal makes that binding's own queued writes eligible immediately. Other bindings keep their own debounce timing. A merged atomic group still waits for its other delayed keys. A binding does not flush a replacement write owned by another binding. This flush is internal.
 
-External navigation cancels pending edits instead of flushing them, even when the destination uses the same route. This applies to programmatic navigation and native Back or Forward traversal. Cancelled edits clear their optimistic values and timer. They do not start another navigation on the old route.
+External navigation includes programmatic navigation and browser Back or Forward traversal. When external navigation begins, a route-name change cancels all queued edits for the old route. For the same route name, only edits to query keys changed by the navigation are cancelled. The comparison uses normalized raw values at each matcher's URL key in the committed route, not optimistic state or parser equality. External redirect targets also run this check.
 
-A guard can start a child `router.push()` or `router.replace()` before its first `await`, then await that navigation. Navigation origin is scoped to the synchronous guard invocation. If a guard first awaits other work, return a redirect location afterward instead of starting and awaiting a child navigation. Do not await query-state `flush()` from a guard running in that same query commit.
+Surviving edits keep their optimistic values and wait for the external navigation to settle. They then commit on top of the new route's query. Writes accepted during external navigation also wait. They survive on the same route unless a later redirect target conflicts. For example, a debounced search edit survives a sidebar link that changes `tags` but leaves the committed `q` unchanged. A link that changes `q` cancels that search edit.
+
+Cancelled writes resolve with `{ cancelled: true }`. If a navigation conflicts with part of a queued patch, its promise resolves as cancelled, but its non-conflicting keys remain queued. If the external navigation is aborted, cancelled edits are not restored. Surviving edits commit on top of whichever route is committed. An already active query navigation settles through the normal router result or rejection.
+
+A guard can start a child `router.push()` or `router.replace()` before its first `await`, then await that navigation. Navigation origin is scoped to the synchronous guard invocation. If a guard first awaits other work, return a redirect location afterward instead of starting and awaiting a child navigation.
 
 `pending` describes query-state writes, not data-loader activity. Use [`useIsDataLoading()`](../data-loaders/) for the global loading state of navigation data loaders. Query-state navigation still runs guards and data loaders. There is no shallow-routing mode.
 
