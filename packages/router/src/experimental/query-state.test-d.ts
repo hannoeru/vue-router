@@ -26,7 +26,11 @@ it('keeps state separate from controls', () => {
   // @ts-expect-error: unsupported history mode
   useQueryParam('search', 'page', { history: 'append' })
   useQueryParam('search', 'page', { throttle: 100 })
-  // @ts-expect-error: scroll uses the router policy
+  useQueryParam('search', 'page', { shallow: true })
+  useQueryParams('search', { shallow: false })
+  // @ts-expect-error: shallow is a boolean
+  useQueryParams('search', { shallow: 'false' })
+  // @ts-expect-error: scroll is not a query-state option
   useQueryParams('search', { scroll: false })
   // @ts-expect-error: debounce is a duration in milliseconds
   useQueryParams('search', { debounce: true })
@@ -39,7 +43,15 @@ it('uses parsed values for reads and writes', () => {
   // @ts-expect-error: use clear for removal
   page.state.value = undefined
   expectTypeOf(page.update(3)).toEqualTypeOf<Promise<QueryStateResult>>()
-  expectTypeOf(page.clear()).toEqualTypeOf<Promise<QueryStateResult>>()
+  expectTypeOf(page.clear({ shallow: false })).toEqualTypeOf<
+    Promise<QueryStateResult>
+  >()
+  expectTypeOf(page.reset({ shallow: true })).toEqualTypeOf<
+    Promise<QueryStateResult>
+  >()
+  expectTypeOf(page.update(4, { shallow: false })).toEqualTypeOf<
+    Promise<QueryStateResult>
+  >()
   // @ts-expect-error: use clear for removal
   page.update(undefined)
   // @ts-expect-error: parsed numbers cannot be set to URL strings

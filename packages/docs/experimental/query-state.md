@@ -6,7 +6,7 @@ Query state requires the [experimental router](./router-resolver.md). It is not 
 
 `useQueryParam()` and `useQueryParams()` connect parsed query params to writable Vue state. They reuse the route's query matchers, parsers, and defaults. State changes immediately. URL updates are batched and rate-limited, with optional debounce per key.
 
-Unlike nuqs's default shallow updates, each batch uses normal Vue Router navigation. Guards, data-loader policies, and the application's `scrollBehavior` still apply. Methods wait for full navigation and every key covered by the call. This is a stronger completion contract than nuqs's URL-update promises.
+Updates are shallow by default. They update browser history and the router's confirmed route without running navigation guards, route loaders, `afterEach`, or `scrollBehavior`. Both `useRoute()` and query bindings reflect the committed query. Set `shallow: false` to use normal router navigation instead. Methods wait for every key covered by the call, through shallow commit or full navigation settlement.
 
 ## Declare the query params
 
@@ -72,7 +72,7 @@ All assignments and methods accept parsed state values. Nested arrays and plain 
 query.tags = [...query.tags, 'vue']
 ```
 
-Custom class instances are outside the deep-immutability guarantee. Bindings to the same route and key share optimistic state. Serialization does not replace the supplied value with a parsed round trip. After navigation settles, state reconciles with the committed route. A lossy serializer can therefore change the displayed value at that point.
+Custom class instances are outside the deep-immutability guarantee. Bindings to the same route and key share optimistic state. Serialization does not replace the supplied value with a parsed round trip. After the batch settles, state reconciles with the committed route. A lossy serializer can therefore change the displayed value at that point.
 
 Equal parsed values retain their computed identity where the parser equality contract permits it. The default comparison supports primitives, `NaN`, `Date`, arrays, and plain objects. Rich values such as `Map` and `Set` need a parser `eq` function.
 
@@ -84,6 +84,7 @@ Call options override composable options.
 
 | Option           | Default                          | Behavior                                           |
 | ---------------- | -------------------------------- | -------------------------------------------------- |
+| `shallow`        | `true`                           | Skip the navigation pipeline for query commits.    |
 | `history`        | `'replace'`                      | Use `'push'` to add a history entry.               |
 | `debounce`       | `0`                              | Wait after the latest write to this key.           |
 | `throttle`       | Browser safety interval          | Increase the minimum interval between URL batches. |
@@ -93,19 +94,21 @@ Delays must be finite and non-negative. `Infinity` is not a manual-commit mode. 
 
 The safety interval follows nuqs v2.10.2. It is 50 ms normally, 120 ms for detected Safari 17 or later, and 320 ms for older Safari or detection fallback. These are library defaults, not browser guarantees. A lower `throttle` cannot bypass the interval.
 
-The first ready batch does not wait an extra interval. Later intervals start when the previous query-state navigation settles, rather than at URL dispatch as in nuqs. This prevents a slow guard followed by a fast navigation from producing adjacent history writes.
+The first ready batch does not wait an extra interval. Later intervals start when the previous query-state batch settles, rather than at URL dispatch as in nuqs. This prevents a slow guard followed by a fast navigation from producing adjacent history writes.
 
-Each URL key has its own debounce. Ready keys share a throttle batch. The latest queued value wins, and superseded callers follow the replacement. The latest options replace an unfinished debounce's options. Among requests retained in a ready batch, push wins and the highest throttle interval wins.
+Each URL key has its own debounce. Ready keys share a throttle batch. The latest queued value wins, and superseded callers follow the replacement. The latest options replace an unfinished debounce's options. Among requests retained in a ready batch, `shallow: false` wins, push wins, and the highest throttle interval wins. A full request retained for the same ready key also keeps its full-navigation intent when a later shallow value replaces it.
 
 A key that returns to debounce leaves the ready batch. Its previous options do not affect unrelated ready keys. Unlike nuqs's separate debounce and throttle queues, this queue retains only the latest not-yet-started value per key.
 
 `patch()` is not a transaction. An immediate page replacement can commit while a search value from the same earlier patch remains debounced. There are no merged atomic groups.
 
-Batches run one at a time. Writes during a query-state navigation wait for a later batch. An older completion cannot remove a newer optimistic value. Each batch preserves the current path, hash, and unrelated raw query keys, including declared fields that were not written.
+Shallow and full batches use one serial queue. A shallow URL write queued behind an active full navigation waits for that navigation and the remaining safety interval. Its optimistic state still changes immediately. This prevents an older full navigation from overwriting a newer shallow commit. An older completion cannot remove a newer optimistic value. Each batch preserves the current path, hash, and unrelated raw query keys, including declared fields that were not written.
 
 A true URL no-op resolves immediately when its keys have no pending work. No-op detection compares serialized URL values, not only parsed equality. Writing default page 1 removes an explicit `?page=1` when clear-on-default applies.
 
-URL debounce does not debounce a fetch that watches optimistic state. Debounce that fetch separately or watch committed `route.params`.
+URL debounce does not debounce a fetch that watches optimistic state. Debounce that fetch separately or watch committed `route.params`. Shallow updates change reactive route state, so user watchers and their network requests can still run.
+
+Shallow commits also skip the built-in `ScrollRestoration` plugin's automatic restore. Manual `scroll()` calls still work. `onRouteRendered` still runs when a shallow route update renders the view; only automatic scroll restoration opts out. Back and Forward use normal router navigation, including guards, loaders, scroll behavior, and automatic restoration. Traversal is not shallow merely because an entry came from a shallow push.
 
 ## Defaults and removal
 
@@ -117,7 +120,7 @@ Reading a default never writes it to the URL.
 
 Omitted patch fields are unchanged. Explicit `undefined` fields are also unchanged. Use `clear()` for removal. `null` is parser data where supported, not a universal removal marker.
 
-Before enqueueing a multi-key call, the engine prepares every supplied value. A serialization error rejects without a partial enqueue. Accepted serialized values are retained until commit, so later input mutation cannot change their URL output. URL parsing still follows the matcher's existing fallback rules. Setters do not parse a serialized round trip as validation.
+Before enqueueing a multi-key call, the engine serializes every supplied value. A serialization error rejects without a partial enqueue. Accepted serialized values are retained until commit, so later input mutation cannot change their URL output. URL parsing still follows the matcher's existing fallback rules. Setters do not parse a serialized round trip as validation.
 
 ## Results and errors
 
@@ -154,7 +157,7 @@ A result never arrives while covered work can still commit. Cancellation can inc
 
 Direct assignment and `v-model` cannot return a promise. Their rejected writes use Vue's normal error handling without an unhandled rejection. Use methods when a component needs to handle errors or outcomes.
 
-`pending` covers query-state work through navigation settlement, not all data-loader activity. Use [`useIsDataLoading()`](../data-loaders/) for global loader state.
+`pending` covers query-state work through shallow commit or full navigation settlement, not all data-loader activity. Use [`useIsDataLoading()`](../data-loaders/) for global loader state.
 
 ## External navigation and cleanup
 
@@ -174,9 +177,11 @@ A custom serializer must accept its parsed output. Generated types exclude incom
 
 Standard Schema transforms do not provide an inverse serializer. The router's fallback stringifies values. Use an explicit parser `set` function when stringification cannot represent the parsed value. Nuqs also defaults to `String` when no serializer is supplied. Neither API infers inverse transformations.
 
-Only `MatcherPatternQueryParam` matchers are supported, not arbitrary aggregate query matchers. There is no shallow mode, public `flush()`, or Nuxt adapter.
+Only `MatcherPatternQueryParam` matchers are supported, not arbitrary aggregate query matchers. There is no public arbitrary-path shallow router operation, public `flush()`, or Nuxt adapter.
 
-Every batch uses ordinary navigation. Query-only updates do not run `beforeEnter` or force a cached loader to reload. The application's scroll policy can scroll on a query update. A full navigation costs more than nuqs's default shallow update.
+A shallow batch must resolve to the same route name and complete matched-record chain. Query-sensitive matching can select another record even when the path stays the same. Such a shallow batch rejects without changing the URL or confirmed route. Use `shallow: false` to enter another route through its navigation pipeline. This check occurs at commit time, after ready-key modes and the merged query are known. Serialization before enqueueing is not route validation.
+
+Full batches follow ordinary navigation policy. Query-only updates do not run `beforeEnter` or force a cached loader to reload. The application's scroll policy can scroll on a full query update.
 
 ## Server rendering
 

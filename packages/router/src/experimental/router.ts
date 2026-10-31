@@ -84,6 +84,8 @@ import type {
   ResolverLocationResolved,
 } from './route-resolver/resolver-abstract'
 import type { DataLoaderExtensions } from './data-loaders/meta-extensions'
+import type { LocationQueryRaw } from './query'
+import { shallowRouteLocations } from './shallow-route'
 import { diagnostics } from '../diagnostics'
 import type { PathParserOptions } from '../matcher'
 import type {
@@ -662,6 +664,9 @@ export interface EXPERIMENTAL_Router
   _withQueryStateNavigation<T>(origin: symbol | undefined, fn: () => T): T
 
   /** @internal */
+  _commitQueryState(query: LocationQueryRaw, history: 'push' | 'replace'): void
+
+  /** @internal */
   _cancelQueryStateNavigation?: () => void
 
   /**
@@ -729,7 +734,7 @@ export function experimental_createRouter(
     //   ]
     | [
         relativeLocation: ResolverLocationAsPathRelative,
-        currentLocation: ResolverLocationResolved<TRecord>,
+        currentLocation?: ResolverLocationResolved<TRecord>,
       ]
     | [
         location: ResolverLocationAsNamed,
@@ -792,6 +797,37 @@ export function experimental_createRouter(
         }
       )
     }
+  }
+
+  function commitQueryState(
+    query: LocationQueryRaw,
+    history: 'push' | 'replace'
+  ) {
+    const current = currentRoute.value
+    const resolved = resolve({ path: current.path, query, hash: current.hash })
+    if (
+      !resolved.matched.length ||
+      resolved.name !== current.name ||
+      resolved.matched.length !== current.matched.length ||
+      resolved.matched.some(
+        (record, index) => record !== current.matched[index]
+      )
+    ) {
+      throw new Error(
+        'Shallow query updates must keep the current route. Use shallow: false to navigate to another route.'
+      )
+    }
+    if (resolved.fullPath === current.fullPath) return
+    const route = {
+      ...current,
+      query: resolved.query,
+      params: resolved.params,
+      fullPath: resolved.fullPath,
+      href: resolved.href,
+    }
+    routerHistory[history](route.fullPath)
+    shallowRouteLocations.add(route)
+    currentRoute.value = route
   }
 
   let invocationOrigin: symbol | undefined
@@ -1467,6 +1503,7 @@ export function experimental_createRouter(
   const router: EXPERIMENTAL_Router = {
     currentRoute,
     listening: true,
+    _commitQueryState: commitQueryState,
     _withQueryStateNavigation: withQueryStateNavigation,
     get _hasExternalQueryStateNavigation() {
       return (

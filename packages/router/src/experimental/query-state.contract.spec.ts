@@ -67,9 +67,15 @@ async function setup(path = '/search/1') {
   const scope = effectScope()
   const controls = app.runWithContext(() =>
     scope.run(() => ({
-      q: useQueryParam('search', 'q') as QueryParamState<any>,
-      page: useQueryParam('search', 'page') as QueryParamState<any>,
-      group: useQueryParams('search') as QueryParamsState<Record<string, any>>,
+      q: useQueryParam('search', 'q', {
+        shallow: false,
+      }) as QueryParamState<any>,
+      page: useQueryParam('search', 'page', {
+        shallow: false,
+      }) as QueryParamState<any>,
+      group: useQueryParams('search', { shallow: false }) as QueryParamsState<
+        Record<string, any>
+      >,
     }))!
   )
   return { router, app, scope, ...controls }

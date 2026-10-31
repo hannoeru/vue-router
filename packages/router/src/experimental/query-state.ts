@@ -20,6 +20,7 @@ import { MatcherPatternQueryParam } from './route-resolver/matchers/matcher-patt
 import { experimental_normalizeQuery } from './query'
 
 export interface QueryStateOptions {
+  shallow?: boolean
   history?: 'replace' | 'push'
   debounce?: number
   throttle?: number
@@ -319,6 +320,9 @@ function createEngine(router: EXPERIMENTAL_Router) {
                     previous.options.history === 'push'
                       ? 'push'
                       : options.history,
+                  shallow:
+                    previous.options.shallow !== false &&
+                    options.shallow !== false,
                   throttle: Math.max(
                     previous.options.throttle ?? floor,
                     options.throttle ?? floor
@@ -355,6 +359,10 @@ function createEngine(router: EXPERIMENTAL_Router) {
     )
       ? 'push'
       : 'replace'
+    if (![...writes.values()].some(write => write.options.shallow === false)) {
+      router._commitQueryState(query, history)
+      return
+    }
     activeCommitOrigin = Symbol()
     activeTarget = undefined
     try {

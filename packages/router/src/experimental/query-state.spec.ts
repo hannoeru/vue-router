@@ -37,15 +37,19 @@ import {
   type QueryStateResult,
 } from './query-state'
 
-const useQueryParam = useTypedQueryParam as (
+const queryParam = useTypedQueryParam as (
   name: string,
   key: string,
   options?: QueryStateOptions
 ) => QueryParamState<any>
-const useQueryParams = useTypedQueryParams as (
+const queryParams = useTypedQueryParams as (
   name: string,
   options?: QueryStateOptions
 ) => QueryParamsState<Record<string, any>>
+const useQueryParam: typeof queryParam = (name, key, options) =>
+  queryParam(name, key, { shallow: false, ...options })
+const useQueryParams: typeof queryParams = (name, options) =>
+  queryParams(name, { shallow: false, ...options })
 import { ScrollRestoration, useScrollRestoration } from './scroll-restoration'
 
 async function setup(path = '/search/7?other=keep#anchor') {
