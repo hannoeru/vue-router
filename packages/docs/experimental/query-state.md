@@ -183,6 +183,8 @@ A shallow batch must resolve to the same route name and complete matched-record 
 
 Full batches follow ordinary navigation policy. Query-only updates do not run `beforeEnter` or force a cached loader to reload. The application's scroll policy can scroll on a full query update.
 
+Data-loader runtime integration is covered by tests, but `DataLoaderPluginOptions.router` currently accepts only the classic `Router` type. Typed plugin installation with the experimental router is not yet supported.
+
 ## Server rendering
 
 Reads work during SSR. Writes without a browser window or within Vue's SSR context are no-ops. They resolve immediately without timers, pending state, or URL changes. This includes server rendering with memory history. Memory history alone does not identify SSR because client applications can also use it. Create a separate router for each server request.
