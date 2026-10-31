@@ -57,8 +57,10 @@ type RouteNamedMap = {
   >
   'custom-raw': ExperimentalRouteRecord<
     'custom-raw',
-    { value: { input: string } },
-    { value: number }
+    { value: { input: string }; page?: number },
+    { value: number; page: number },
+    never,
+    'value' | 'page'
   >
   // id is a path param, page a query param
   user: ExperimentalRouteRecord<
@@ -102,11 +104,14 @@ declare module 'vue-router' {
 describe('query state inference from the public package', () => {
   it('infers parsed values and rejects invalid names, keys and values', () => {
     const page = useQueryParam('search', 'page')
-    expectTypeOf(page.state).toExtend<Ref<number, number | undefined>>()
+    expectTypeOf(page.state).toExtend<Ref<number>>()
     expectTypeOf(page.state.value).toEqualTypeOf<number>()
     expectTypeOf(page.update(2)).toEqualTypeOf<Promise<QueryStateResult>>()
+    // @ts-expect-error: parsed page does not include undefined
     page.state.value = undefined
+    // @ts-expect-error: use clear for removal
     page.update(undefined)
+    page.clear()
     const tags = useQueryParam('search', 'tags')
     expectTypeOf(tags.state.value).toEqualTypeOf<readonly string[]>()
     const date = useQueryParam('search', 'date')
@@ -138,6 +143,15 @@ describe('query state inference from the public package', () => {
     useQueryParam('user', 'section')
     // @ts-expect-error: child query params are not available on the parent
     useQueryParam('users', 'filter')
+    // @ts-expect-error: the serializer cannot accept the parsed output
+    useQueryParam('custom-raw', 'value')
+    useQueryParam('custom-raw', 'page').update(2)
+    // @ts-expect-error: a group must support every declared query key
+    useQueryParams('custom-raw')
+    tags.update(tags.state.value)
+    state.patch({ tags: state.state.tags })
+    const readonlyTags = state.state.tags
+    state.state.tags = readonlyTags
     expectTypeOf(useQueryParams('user').state).toEqualTypeOf<{ page: number }>()
     expectTypeOf(useQueryParams('users').state).toEqualTypeOf<{}>()
     expectTypeOf(

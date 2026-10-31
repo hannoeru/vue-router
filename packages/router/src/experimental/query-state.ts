@@ -1,11 +1,9 @@
 import {
   computed,
-  getCurrentScope,
   getCurrentInstance,
   handleError,
   ErrorCodes,
   inject,
-  onScopeDispose,
   reactive,
   readonly,
   shallowRef,
@@ -15,7 +13,7 @@ import {
   type WritableComputedRef,
 } from 'vue'
 import { useRouter } from '../useApi'
-import type { NavigationFailure } from '../errors'
+import { isNavigationFailure, type NavigationFailure } from '../errors'
 import type { RouteMap } from '../typed-routes/route-map'
 import type { EXPERIMENTAL_Router } from './router'
 import { MatcherPatternQueryParam } from './route-resolver/matchers/matcher-pattern-query'
@@ -24,6 +22,7 @@ import { experimental_normalizeQuery } from './query'
 export interface QueryStateOptions {
   history?: 'replace' | 'push'
   debounce?: number
+  throttle?: number
   clearOnDefault?: boolean
 }
 
@@ -34,52 +33,56 @@ export type QueryStateResult =
 
 export interface QueryParamControls<T> {
   pending: ComputedRef<boolean>
-  update(value: T, options?: QueryStateOptions): Promise<QueryStateResult>
-  reset(options?: QueryStateOptions): Promise<QueryStateResult>
-}
-
-export type QueryParamState<T, Raw = T> = QueryParamControls<Raw> & {
-  state: WritableComputedRef<DeepReadonly<T>, Raw>
-}
-
-type Params<Name extends keyof RouteMap> = Pick<
-  RouteMap[Name]['params'],
-  RouteMap[Name]['queryKeys']
->
-type ParamsRaw<Name extends keyof RouteMap> = Pick<
-  RouteMap[Name]['paramsRaw'],
-  RouteMap[Name]['queryKeys']
->
-
-export type QueryParamsState<T, Raw = T> = {
-  state: { [K in keyof T]: DeepReadonly<T[K]> }
-  patch(
-    values: keyof Raw extends never ? Record<string, never> : Partial<Raw>,
+  update(
+    value: DeepReadonly<T>,
     options?: QueryStateOptions
   ): Promise<QueryStateResult>
   reset(options?: QueryStateOptions): Promise<QueryStateResult>
+  clear(options?: QueryStateOptions): Promise<QueryStateResult>
+}
+
+export type QueryParamState<T> = QueryParamControls<T> & {
+  state: WritableComputedRef<DeepReadonly<T>, DeepReadonly<T>>
+}
+
+type QueryKeys<Name extends keyof RouteMap> = {
+  [K in RouteMap[Name]['queryKeys']]: DeepReadonly<
+    RouteMap[Name]['params'][K]
+  > extends DeepReadonly<RouteMap[Name]['paramsRaw'][K]>
+    ? K
+    : never
+}[RouteMap[Name]['queryKeys']]
+type Params<Name extends keyof RouteMap> = Pick<
+  RouteMap[Name]['params'],
+  QueryKeys<Name>
+>
+
+export type QueryParamsState<T> = {
+  state: { [K in keyof T]: DeepReadonly<T[K]> }
+  patch(
+    values: keyof T extends never
+      ? Record<string, never>
+      : Partial<{ [K in keyof T]: DeepReadonly<T[K]> }>,
+    options?: QueryStateOptions
+  ): Promise<QueryStateResult>
+  reset(options?: QueryStateOptions): Promise<QueryStateResult>
+  clear(options?: QueryStateOptions): Promise<QueryStateResult>
   pending: ComputedRef<boolean>
 }
 
 type Name = string | symbol
 type Matcher = MatcherPatternQueryParam<any, string>
-type Settlement = {
-  keys: Set<string>
-  history: QueryStateOptions['history']
-  resolve(result: QueryStateResult): void
-  reject(reason: unknown): void
-}
+type Outcome = { result: QueryStateResult } | { error: unknown }
 type Write = {
-  raw: unknown
-  value: unknown
-  options: QueryStateOptions
-  source: symbol
-  deadline: number
-}
-type Group = {
   name: Name
-  writes: Map<string, Write>
-  settlements: Set<Settlement>
+  value: unknown
+  query: ReturnType<typeof experimental_normalizeQuery>
+  options: QueryStateOptions
+  deadline: number
+  ready: boolean
+  optimistic: boolean
+  promise: Promise<Outcome>
+  settle(outcome: Outcome): void
 }
 
 const engines = new WeakMap<
@@ -101,11 +104,10 @@ function queryMatchers(router: EXPERIMENTAL_Router, name: Name) {
   const matchers = new Map<string, Matcher>()
   for (const current of chain) {
     for (const matcher of current.query || []) {
-      if (!(matcher instanceof MatcherPatternQueryParam)) {
+      if (!(matcher instanceof MatcherPatternQueryParam))
         throw new Error(
           'Query state requires MatcherPatternQueryParam matchers'
         )
-      }
       matchers.set(matcher.paramName, matcher)
     }
   }
@@ -113,9 +115,9 @@ function queryMatchers(router: EXPERIMENTAL_Router, name: Name) {
 }
 
 function validateOptions(options: QueryStateOptions) {
-  const wait = options.debounce
-  if (wait !== undefined && (!Number.isFinite(wait) || wait < 0)) {
-    throw new Error('Query-state waits must be finite non-negative numbers')
+  for (const wait of [options.debounce, options.throttle]) {
+    if (wait !== undefined && (!Number.isFinite(wait) || wait < 0))
+      throw new Error('Query-state waits must be finite non-negative numbers')
   }
 }
 
@@ -125,80 +127,106 @@ function immutable<T>(value: T): DeepReadonly<T> {
   ) as DeepReadonly<T>
 }
 
+export function queryStateThrottle() {
+  if (
+    typeof window === 'undefined' ||
+    !('GestureEvent' in window) ||
+    !window.GestureEvent
+  )
+    return 50
+  const version = navigator.userAgent.match(/version\/([\d.]+) safari/i)
+  return version && parseFloat(version[1]) >= 17 ? 120 : 320
+}
+
+async function settleCall(
+  promises: Promise<Outcome>[]
+): Promise<QueryStateResult> {
+  const outcomes = await Promise.all(promises)
+  for (const outcome of outcomes) if ('error' in outcome) throw outcome.error
+  for (const outcome of outcomes)
+    if ('result' in outcome && isNavigationFailure(outcome.result))
+      return outcome.result
+  for (const outcome of outcomes)
+    if ('result' in outcome && outcome.result && 'cancelled' in outcome.result)
+      return outcome.result
+}
+
 function createEngine(router: EXPERIMENTAL_Router) {
-  const overlay = shallowRef(new Map<Name, Map<string, Write>>())
-  const queue = new Set<Group>()
-  const active = new Map<Name, Map<string, Write>>()
+  const overlay = shallowRef(new Map<string, Write>())
+  const queue = new Map<string, Write>()
+  const active = new Map<string, Write>()
+  const floor = queryStateThrottle()
   let timer: ReturnType<typeof setTimeout> | undefined
   let scheduled = false
   let running = false
+  let lastSettled: number | undefined
   let activeCommitOrigin: symbol | undefined
+  let activeTarget: string | undefined
 
   router._beforeQueryStateNavigation = (to, origin) => {
-    if (origin !== undefined && origin === activeCommitOrigin) return
-    const current = experimental_normalizeQuery(router.currentRoute.value.query)
-    const target = experimental_normalizeQuery(to.query)
-    cancelKeys((name, key) => {
-      if (name !== to.name) return true
-      const matcher = queryMatchers(router, name).get(key)!
-      const before = current[matcher.queryKey]
-      const after = target[matcher.queryKey]
-      return (
-        before?.length !== after?.length ||
-        !!before?.some((value, index) => value !== after?.[index])
-      )
-    })
+    if (origin !== undefined && origin === activeCommitOrigin) {
+      if (activeTarget === undefined) activeTarget = to.fullPath
+      else if (activeTarget !== to.fullPath) cancel()
+    } else {
+      for (const write of active.values()) write.optimistic = false
+      cancel()
+    }
   }
-  router._afterQueryStateNavigation = () => {
-    cancelKeys(name => name !== router.currentRoute.value.name)
-  }
-  router._cancelQueryStateNavigation = () => {
-    cancelKeys(() => true)
-  }
+  router._afterQueryStateNavigation = schedule
+  router._cancelQueryStateNavigation = cancel
 
   function notify() {
     overlay.value = new Map(overlay.value)
   }
 
-  function removeOverlay(name: Name, key: string, write: Write) {
-    const values = overlay.value.get(name)
-    if (values?.get(key) === write) {
-      const previous = active.get(name)?.get(key)
-      if (previous && previous !== write) values.set(key, previous)
-      else values.delete(key)
-    }
-    if (!values?.size) overlay.value.delete(name)
+  function removeOverlay(urlKey: string, write: Write) {
+    if (overlay.value.get(urlKey) !== write) return
+    const previous = active.get(urlKey)
+    if (previous && previous !== write) overlay.value.set(urlKey, previous)
+    else overlay.value.delete(urlKey)
   }
 
-  function cancelKeys(conflicts: (name: Name, key: string) => boolean) {
-    for (const group of queue) {
-      for (const [key, write] of group.writes) {
-        if (!conflicts(group.name, key)) continue
-        group.writes.delete(key)
-        removeOverlay(group.name, key, write)
-        for (const settlement of group.settlements) {
-          if (settlement.keys.has(key)) {
-            settlement.resolve({ cancelled: true })
-            group.settlements.delete(settlement)
-          }
-        }
-      }
-      if (!group.writes.size) queue.delete(group)
+  function cancel() {
+    for (const [urlKey, write] of queue) {
+      removeOverlay(urlKey, write)
+      write.settle({ result: { cancelled: true } })
     }
+    queue.clear()
     notify()
     schedule()
-  }
-
-  function deadline(group: Group) {
-    return Math.max(...[...group.writes.values()].map(write => write.deadline))
   }
 
   function schedule() {
     if (timer !== undefined) clearTimeout(timer)
     timer = undefined
-    if (!queue.size || running || router._pendingQueryStateNavigations) return
-    const due = Math.min(...[...queue].map(deadline))
-    if (due <= Date.now()) {
+    if (!queue.size || running || router._hasExternalQueryStateNavigation)
+      return
+    const now = Date.now()
+    for (const write of queue.values()) {
+      if (!write.ready && write.deadline <= now) {
+        write.ready = true
+      }
+    }
+    const writes = [...queue.values()]
+    const ready = writes.some(write => write.ready)
+    const batchThrottle = Math.max(
+      floor,
+      ...writes
+        .filter(write => write.ready)
+        .map(write => write.options.throttle ?? floor)
+    )
+    const nextDeadline = Math.min(
+      ...writes.filter(write => !write.ready).map(write => write.deadline)
+    )
+    const due = ready
+      ? Math.min(
+          nextDeadline,
+          lastSettled === undefined
+            ? now
+            : Math.max(now, lastSettled + batchThrottle)
+        )
+      : nextDeadline
+    if (due <= now) {
       if (!scheduled) {
         scheduled = true
         queueMicrotask(() => {
@@ -207,13 +235,7 @@ function createEngine(router: EXPERIMENTAL_Router) {
         })
       }
     } else {
-      timer = setTimeout(
-        () => {
-          timer = undefined
-          flush()
-        },
-        Math.min(due - Date.now(), 2 ** 31 - 1)
-      )
+      timer = setTimeout(schedule, Math.min(due - now, 2 ** 31 - 1))
     }
   }
 
@@ -221,186 +243,187 @@ function createEngine(router: EXPERIMENTAL_Router) {
     name: Name,
     values: Record<string, unknown>,
     options: QueryStateOptions,
-    source: symbol,
     server: boolean,
-    reset = false
+    operation: 'update' | 'reset' | 'clear' = 'update'
   ): Promise<QueryStateResult> {
     if (server) return Promise.resolve()
     try {
       validateOptions(options)
       if (router.currentRoute.value.name !== name)
         throw new Error('Cannot update query state for an inactive route')
+      if (router._hasExternalQueryStateNavigation)
+        return Promise.resolve({ cancelled: true })
       const matchers = queryMatchers(router, name)
-      const params = Object.assign(
-        Object.create(null),
-        router.currentRoute.value.params,
-        values
-      )
-      const writes = new Map<string, Write>()
-      for (const [key, value] of Object.entries(values)) {
+      const prepared = []
+      for (const [key, input] of Object.entries(values)) {
         const matcher = matchers.get(key)
         if (!matcher) throw new Error(`Not a query param: ${key}`)
+        if (operation === 'update' && input === undefined) continue
         if (
-          value === undefined &&
+          operation !== 'update' &&
           matcher.required &&
           matcher.defaultValue === undefined
-        ) {
-          throw new Error(`Cannot reset required query param: ${key}`)
-        }
-        const normalized = matcher.match(
-          experimental_normalizeQuery(
-            matcher.build(params, { clearOnDefault: options.clearOnDefault })
-          )
-        )[key]
-        writes.set(key, {
-          raw: value,
-          value: normalized,
-          options,
-          source,
-          deadline: Date.now() + (options.debounce ?? 0),
-        })
-      }
-      if (!writes.size) return Promise.resolve()
-      if (
-        !reset &&
-        options.clearOnDefault === undefined &&
-        [...writes].every(
-          ([key, write]) =>
-            !overlay.value.get(name)?.has(key) &&
-            matchers
-              .get(key)!
-              .equals(router.currentRoute.value.params[key], write.value)
         )
+          throw new Error(`Cannot ${operation} required query param: ${key}`)
+        const value =
+          operation === 'clear' ||
+          (operation === 'reset' && matcher.defaultValue === undefined)
+            ? matcher.match(Object.create(null))[key]
+            : operation === 'reset'
+              ? matcher.getDefaultValue()
+              : input
+        const query =
+          operation === 'clear' ||
+          (operation === 'reset' && matcher.defaultValue === undefined)
+            ? (Object.create(null) as ReturnType<
+                typeof experimental_normalizeQuery
+              >)
+            : experimental_normalizeQuery(
+                matcher.build(
+                  { [key]: value },
+                  { clearOnDefault: options.clearOnDefault }
+                )
+              )
+        prepared.push({ urlKey: matcher.queryKey, value, query })
+      }
+      const currentQuery = experimental_normalizeQuery(
+        router.currentRoute.value.query
       )
-        return Promise.resolve()
-
-      return new Promise<QueryStateResult>((resolve, reject) => {
-        const group: Group = {
+      const promises: Promise<Outcome>[] = []
+      for (const { urlKey, value, query } of prepared) {
+        const previous = queue.get(urlKey)
+        const before = currentQuery[urlKey] ?? []
+        const after = query[urlKey] ?? []
+        if (
+          !previous &&
+          !active.has(urlKey) &&
+          before.length === after.length &&
+          before.every((value, index) => value === after[index])
+        )
+          continue
+        let settle!: Write['settle']
+        const promise =
+          previous?.promise ??
+          new Promise<Outcome>(resolve => {
+            settle = resolve
+          })
+        const next: Write = {
           name,
-          writes: new Map(),
-          settlements: new Set(),
+          value: immutable(value),
+          query,
+          options:
+            previous?.ready && !options.debounce
+              ? {
+                  ...options,
+                  history:
+                    previous.options.history === 'push'
+                      ? 'push'
+                      : options.history,
+                  throttle: Math.max(
+                    previous.options.throttle ?? floor,
+                    options.throttle ?? floor
+                  ),
+                }
+              : options,
+          deadline: Date.now() + (options.debounce ?? 0),
+          ready: false,
+          optimistic: true,
+          promise,
+          settle: previous?.settle ?? settle,
         }
-        for (const queued of queue) {
-          if (
-            queued.name !== name ||
-            ![...writes.keys()].some(key => queued.writes.has(key))
-          )
-            continue
-          queue.delete(queued)
-          for (const [key, write] of queued.writes) group.writes.set(key, write)
-          for (const settlement of queued.settlements)
-            group.settlements.add(settlement)
-        }
-        for (const [key, write] of writes) group.writes.set(key, write)
-        group.settlements.add({
-          keys: new Set(writes.keys()),
-          history: options.history,
-          resolve,
-          reject,
-        })
-        queue.add(group)
-        if (!overlay.value.has(name)) overlay.value.set(name, new Map())
-        for (const [key, write] of writes)
-          overlay.value.get(name)!.set(key, write)
-        notify()
-        schedule()
-      })
+        queue.set(urlKey, next)
+        overlay.value.set(urlKey, next)
+        promises.push(promise)
+      }
+      notify()
+      schedule()
+      return settleCall(promises)
     } catch (error) {
       return Promise.reject(error)
     }
   }
 
-  async function commit(groups: Group[]): Promise<QueryStateResult> {
+  async function commit(writes: Map<string, Write>): Promise<QueryStateResult> {
     const current = router.currentRoute.value
-    const name = groups[0].name
-    if (current.name !== name) return { cancelled: true }
-    const writes = new Map(groups.flatMap(group => [...group.writes]))
-    const params = Object.assign(Object.create(null), current.params)
-    for (const [key, write] of writes) params[key] = write.raw
     const query = Object.assign(Object.create(null), current.query)
-    const matchers = queryMatchers(router, name)
-    for (const [key, write] of writes) {
-      const matcher = matchers.get(key)!
-      delete query[matcher.queryKey]
-      Object.assign(
-        query,
-        experimental_normalizeQuery(
-          matcher.build(params, {
-            clearOnDefault: write.options.clearOnDefault,
-          })
-        )
-      )
+    for (const [urlKey, write] of writes) {
+      delete query[urlKey]
+      Object.assign(query, write.query)
     }
+    const history = [...writes.values()].some(
+      write => write.options.history === 'push'
+    )
+      ? 'push'
+      : 'replace'
     activeCommitOrigin = Symbol()
+    activeTarget = undefined
     try {
       return await router._withQueryStateNavigation(activeCommitOrigin, () =>
         router.push({
           path: current.path,
           query,
           hash: current.hash,
-          replace: !groups.some(group =>
-            [...group.settlements].some(
-              settlement => settlement.history === 'push'
-            )
-          ),
+          replace: history !== 'push',
         })
       )
     } finally {
       activeCommitOrigin = undefined
+      activeTarget = undefined
     }
   }
 
   function flush() {
-    if (running || router._pendingQueryStateNavigations) return
-    const groups = [...queue].filter(group => deadline(group) <= Date.now())
-    if (!groups.length) {
+    if (running || router._hasExternalQueryStateNavigation) return
+    const now = Date.now()
+    const batchThrottle = Math.max(
+      floor,
+      ...[...queue.values()]
+        .filter(write => write.ready)
+        .map(write => write.options.throttle ?? floor)
+    )
+    if (lastSettled !== undefined && now < lastSettled + batchThrottle) {
       schedule()
       return
     }
-    for (const group of groups) {
-      queue.delete(group)
-      if (!active.has(group.name)) active.set(group.name, new Map())
-      for (const [key, write] of group.writes)
-        active.get(group.name)!.set(key, write)
+    for (const [urlKey, write] of queue) {
+      if (write.ready) {
+        queue.delete(urlKey)
+        active.set(urlKey, write)
+      }
+    }
+    if (!active.size) {
+      schedule()
+      return
     }
     running = true
-    const finish = () => {
+    const finish = (outcome: Outcome) => {
+      const writes = new Map(active)
       active.clear()
-      for (const group of groups) {
-        for (const [key, write] of group.writes)
-          removeOverlay(group.name, key, write)
+      for (const [urlKey, write] of writes) {
+        removeOverlay(urlKey, write)
+        write.settle(outcome)
       }
       running = false
+      lastSettled = Date.now()
       notify()
-      cancelKeys(name => name !== router.currentRoute.value.name)
       schedule()
     }
-    void commit(groups).then(
-      result => {
-        finish()
-        for (const group of groups) {
-          for (const settlement of group.settlements) settlement.resolve(result)
-        }
-      },
-      error => {
-        finish()
-        for (const group of groups) {
-          for (const settlement of group.settlements) settlement.reject(error)
-        }
-      }
+    void commit(active).then(
+      result => finish({ result }),
+      error => finish({ error })
     )
   }
 
-  function flushSource(source: symbol) {
-    for (const group of queue) {
-      for (const write of group.writes.values()) {
-        if (write.source === source) write.deadline = Date.now()
-      }
-    }
-    schedule()
+  function pending(name: Name, urlKey?: string) {
+    const values = overlay.value
+    return urlKey !== undefined
+      ? values.get(urlKey)?.name === name || active.get(urlKey)?.name === name
+      : [...values.values(), ...active.values()].some(
+          write => write.name === name
+        )
   }
 
-  return { overlay, write, flushSource }
+  return { overlay, write, pending }
 }
 
 function useEngine() {
@@ -409,47 +432,39 @@ function useEngine() {
   if (!engine) engines.set(router, (engine = createEngine(router)))
   const server =
     typeof window === 'undefined' || !!inject(ssrContextKey, undefined)
-  const source = Symbol()
   const instance = getCurrentInstance()
-  const reportError = (error: unknown) => {
+  const reportError = (error: unknown) =>
     handleError(error, instance, ErrorCodes.COMPONENT_EVENT_HANDLER, false)
-  }
-  if (getCurrentScope()) onScopeDispose(() => engine.flushSource(source))
-  return { router, engine, server, source, reportError }
+  return { router, engine, server, reportError }
 }
 
 export function useQueryParam<
   Name extends keyof RouteMap,
-  Key extends keyof Params<Name> & keyof ParamsRaw<Name> & string,
+  Key extends keyof Params<Name> & string,
 >(
   name: Name,
   key: Key,
   options: QueryStateOptions = {}
-): QueryParamState<Params<Name>[Key], ParamsRaw<Name>[Key]> {
+): QueryParamState<Params<Name>[Key]> {
   validateOptions(options)
-  const { router, engine, server, source, reportError } = useEngine()
+  const { router, engine, server, reportError } = useEngine()
   const matcher = queryMatchers(router, name).get(key)
   if (!matcher) throw new Error(`Not a query param: ${key}`)
   type T = Params<Name>[Key]
-  type Raw = ParamsRaw<Name>[Key]
-  const update = (value: Raw, override?: QueryStateOptions) =>
-    engine.write(
-      name,
-      { [key]: value },
-      { ...options, ...override },
-      source,
-      server
-    )
-  const state = computed<DeepReadonly<T>, Raw>({
+  const update = (value: DeepReadonly<T>, override?: QueryStateOptions) =>
+    engine.write(name, { [key]: value }, { ...options, ...override }, server)
+  const state = computed<DeepReadonly<T>, DeepReadonly<T>>({
     get: previous => {
-      const write = engine.overlay.value.get(name)?.get(key)
+      const write = engine.overlay.value.get(matcher.queryKey)
       const route = router.currentRoute.value
       const next = (
-        write
-          ? write.value
-          : route.name === name && Object.hasOwn(route.params, key)
-            ? route.params[key]
-            : matcher.getDefaultValue()
+        route.name !== name
+          ? matcher.getDefaultValue()
+          : write?.name === name && write.optimistic
+            ? write.value
+            : Object.hasOwn(route.params, key)
+              ? route.params[key]
+              : matcher.getDefaultValue()
       ) as T
       return previous !== undefined && matcher.equals(previous, next)
         ? previous
@@ -459,47 +474,53 @@ export function useQueryParam<
       void update(value).catch(reportError)
     },
   })
+  const perform = (
+    operation: 'reset' | 'clear',
+    override?: QueryStateOptions
+  ) =>
+    engine.write(
+      name,
+      { [key]: undefined },
+      { ...options, ...override },
+      server,
+      operation
+    )
   return {
     state,
-    pending: computed(() => engine.overlay.value.get(name)?.has(key) || false),
     update,
-    reset: override =>
-      engine.write(
-        name,
-        { [key]: matcher.getDefaultValue() },
-        {
-          ...options,
-          clearOnDefault: options.clearOnDefault ?? matcher.clearOnDefault,
-          ...override,
-        },
-        source,
-        server,
-        true
-      ),
+    reset: override => perform('reset', override),
+    clear: override => perform('clear', override),
+    pending: computed(() => engine.pending(name, matcher.queryKey)),
   }
 }
 
 export function useQueryParams<Name extends keyof RouteMap>(
-  name: Name,
+  name: Name &
+    (Exclude<RouteMap[Name]['queryKeys'], QueryKeys<Name>> extends never
+      ? unknown
+      : never),
   options: QueryStateOptions = {}
-): QueryParamsState<Params<Name>, ParamsRaw<Name>> {
+): QueryParamsState<Params<Name>> {
   validateOptions(options)
-  const { router, engine, server, source, reportError } = useEngine()
+  const { router, engine, server, reportError } = useEngine()
   const matchers = queryMatchers(router, name)
   const state: Record<string, unknown> = Object.create(null)
   const patch = (
     values: Record<string, unknown>,
     override?: QueryStateOptions
-  ) => engine.write(name, values, { ...options, ...override }, source, server)
+  ) => engine.write(name, values, { ...options, ...override }, server)
   for (const [key, matcher] of matchers) {
     const value = computed(previous => {
-      const write = engine.overlay.value.get(name)?.get(key)
+      const write = engine.overlay.value.get(matcher.queryKey)
       const route = router.currentRoute.value
-      const next = write
-        ? write.value
-        : route.name === name && Object.hasOwn(route.params, key)
-          ? route.params[key]
-          : matcher.getDefaultValue()
+      const next =
+        route.name !== name
+          ? matcher.getDefaultValue()
+          : write?.name === name && write.optimistic
+            ? write.value
+            : Object.hasOwn(route.params, key)
+              ? route.params[key]
+              : matcher.getDefaultValue()
       return previous !== undefined && matcher.equals(previous, next)
         ? previous
         : immutable(next)
@@ -512,23 +533,22 @@ export function useQueryParams<Name extends keyof RouteMap>(
       },
     })
   }
+  const perform = (
+    operation: 'reset' | 'clear',
+    override?: QueryStateOptions
+  ) =>
+    engine.write(
+      name,
+      Object.fromEntries([...matchers.keys()].map(key => [key, undefined])),
+      { ...options, ...override },
+      server,
+      operation
+    )
   return {
     state: reactive(state) as QueryParamsState<Params<Name>>['state'],
     patch,
-    reset: override =>
-      engine.write(
-        name,
-        Object.fromEntries(
-          [...matchers].map(([key, matcher]) => [
-            key,
-            matcher.getDefaultValue(),
-          ])
-        ),
-        { ...options, ...override },
-        source,
-        server,
-        true
-      ),
-    pending: computed(() => !!engine.overlay.value.get(name)?.size),
+    reset: override => perform('reset', override),
+    clear: override => perform('clear', override),
+    pending: computed(() => engine.pending(name)),
   }
 }

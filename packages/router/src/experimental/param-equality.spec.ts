@@ -27,7 +27,6 @@ describe('param equality', () => {
       expect(isSameParamValue(first, first)).toBe(true)
       expect(isSameParamValue(first, second)).toBe(false)
       expect(PARAM_PARSER_JSON.eq?.(first, second)).toBe(false)
-      expect(PARAM_PARSER_JSON.set(first)).toBeUndefined()
       const matcher = new MatcherPatternQueryParam(
         'filter',
         'f',
@@ -36,7 +35,6 @@ describe('param equality', () => {
         first
       )
       expect(matcher.equals(first, second)).toBe(false)
-      expect(matcher.build({ filter: second })).toEqual({ f: undefined })
     }
   )
 

@@ -44,7 +44,9 @@ it.each([false, true])(
             single.update('ignored'),
             group.patch({ q: 'ignored' }),
             single.reset(),
-            group.reset()
+            group.reset(),
+            single.clear(),
+            group.clear()
           )
           expect(single.pending.value).toBe(false)
           expect(group.pending.value).toBe(false)
@@ -53,7 +55,7 @@ it.each([false, true])(
       })
       app.use(router)
       expect(await renderToString(app)).toBe('<p>server</p>')
-      expect(await Promise.all(promises)).toEqual(Array(4).fill(undefined))
+      expect(await Promise.all(promises)).toEqual(Array(6).fill(undefined))
       expect(router.currentRoute.value.fullPath).toBe('/search?q=server')
       expect(vi.getTimerCount()).toBe(0)
     } finally {

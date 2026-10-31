@@ -4,163 +4,186 @@
 Query state requires the [experimental router](./router-resolver.md). It is not production-ready. The API can change.
 :::
 
-`useQueryParam()` and `useQueryParams()` connect parsed query params to Vue state. They use the route's existing query matchers and parsers. Do not declare a second parser or default in the composable.
+`useQueryParam()` and `useQueryParams()` connect parsed query params to writable Vue state. They reuse the route's query matchers, parsers, and defaults. State changes immediately. URL updates are batched and rate-limited, with optional debounce per key.
+
+Unlike nuqs's default shallow updates, each batch uses normal Vue Router navigation. Guards, data-loader policies, and the application's `scrollBehavior` still apply. Methods wait for full navigation and every key covered by the call. This is a stronger completion contract than nuqs's URL-update promises.
 
 ## Declare the query params
 
-For example, a file-based route can declare these query params:
+Enable the experimental resolver and generated route types. For example, a file-based route can declare:
 
 ```vue
 <script setup lang="ts">
+import { useQueryParam, useQueryParams } from 'vue-router/experimental'
+
 definePage({
   params: {
     query: {
       q: { default: '' },
-      page: { parser: 'int', default: 1 },
+      page: { parser: 'int', format: 'value', default: 1 },
       tags: { format: 'array', default: () => [] },
     },
   },
 })
-</script>
-```
-
-With a fixed resolver, use `MatcherPatternQueryParam` in the record's `query` array. The composable key is the **parsed param name**, not its URL key. A matcher with param name `page` and URL key `p` is accessed with `useQueryParam(name, 'page')`.
-
-Generated route types identify query keys separately from path and hash keys. A binding uses the exact active route name, not its descendants. This differs from `useRoute(name)`.
-
-## One query param
-
-The result contains a writable computed ref named `state` and separate controls. The ref works with `v-model`:
-
-```vue
-<script setup lang="ts">
-import { useQueryParam } from 'vue-router/experimental'
 
 const {
   state: q,
   pending,
   update,
-  reset,
-} = useQueryParam('/search', 'q', { debounce: 250 })
+} = useQueryParam('/search', 'q', {
+  debounce: 250,
+})
+const { state: query, patch } = useQueryParams('/search')
+
+function applyNow() {
+  return update(q.value, { debounce: 0 })
+}
 </script>
 
 <template>
-  <input v-model="q" />
+  <input v-model="q" @keyup.enter="applyNow" />
+  <p v-if="pending">Updating…</p>
+  <p>Page {{ query.page }}</p>
+  <button @click="patch({ page: 1, tags: [] })">Reset filters</button>
 </template>
 ```
 
-```ts
-const { state: page, update, reset } = useQueryParam('/search', 'page')
+With a fixed resolver, declare `MatcherPatternQueryParam` instances in the record's `query` array. Query matchers from parent records are included. The binding key is the parsed param name, not its URL key. Fixed-resolver matchers support URL-key aliases. This API does not add alias syntax to `definePage()`.
 
-page.value = 2
-await update(3, { history: 'push' })
-await reset()
-```
+Both composables take an exact route name. A parent name does not match an active child. Generated types exclude path and hash keys.
 
-- `pending` is a readonly computed ref. It stays true while the param is queued or its navigation is in progress.
-- `update(value, options?)` returns that write's settlement promise. Writes committed in one batch settle with the same navigation result. Superseded writes to one key settle with the replacement that is eventually committed.
-- `reset(options?)` writes the matcher's default. With no default, it writes `undefined` to remove an optional param. Resetting a required param without a default rejects the promise and leaves the URL unchanged.
+## State and controls
 
-### Write results
+`useQueryParam(name, key, options?)` returns:
 
-`update()`, `patch()`, and `reset()` preserve navigation outcomes. A successful write or a no-op resolves with `undefined`. An aborted or cancelled router navigation resolves with the `NavigationFailure` returned by `router.push()` or `router.replace()`. Pending edits cancelled before navigation resolve with `{ cancelled: true }`. The exported result type is `QueryStateResult = void | NavigationFailure | { readonly cancelled: true }`. Cancellation is not a parser error.
+- `state`, a writable computed ref for the parsed value.
+- `update(value, options?)`, which writes one parsed state value.
+- `reset(options?)`, which restores the schema default.
+- `clear(options?)`, which removes the URL key regardless of its default.
+- `pending`, a read-only computed ref for queued and active writes to the key.
 
-A failed navigation removes the optimistic value and restores the committed route value. Parser, validation, or navigation errors that escape the matcher reject the promise. Optional parser failures still use matcher defaults, as they do during ordinary navigation. Ref assignments cannot return promises. Their rejected writes use Vue's error handling without an unhandled promise rejection. Use `update()` to handle errors or inspect navigation outcomes. A successful redirect counts as success but can change the requested query value.
+`useQueryParams(name, options?)` returns a reactive `state` object and `patch(values, options?)` instead of `update()`. Its `reset()` and `clear()` affect all declared query keys. To clear one key, use a single-key binding.
 
-## Several query params
+Controls are separate from state, so fields named `patch`, `reset`, or `clear` are valid query keys. Use `toRefs(state)` when individual refs are needed.
 
-`useQueryParams()` returns `{ state, patch, reset, pending }`. The reactive writable `state` object contains only declared query values. Controls have a separate namespace, so query fields named `patch` or `reset` are valid.
-
-```ts
-import { toRefs } from 'vue'
-import { useQueryParams } from 'vue-router/experimental'
-
-const {
-  state: query,
-  patch,
-  reset,
-  pending,
-} = useQueryParams('/search', { history: 'replace' })
-const { q, page, tags } = toRefs(query)
-
-query.page = 2
-q.value = 'vue'
-await patch({ page: 1, tags: ['router', 'vue'] })
-await reset()
-
-pending.value
-```
-
-`patch()` validates the whole patch before it queues any field. A rejected patch commits nothing. It preserves other query params. `reset()` resets all declared query params to their matcher defaults. Both accept per-call options. `pending` covers all queued or in-progress query-state writes for the route.
-
-Nested arrays and plain objects are readonly. Custom class instances are outside this guarantee. In-place changes such as `query.tags.push('vue')` cannot change committed route params. Replace the top-level value to schedule a write:
+All assignments and methods accept parsed state values. Nested arrays and plain objects are read-only. Replace the whole value instead of changing it in place:
 
 ```ts
 query.tags = [...query.tags, 'vue']
 ```
 
-## Options
+Custom class instances are outside the deep-immutability guarantee. Bindings to the same route and key share optimistic state. Serialization does not replace the supplied value with a parsed round trip. After navigation settles, state reconciles with the committed route. A lossy serializer can therefore change the displayed value at that point.
 
-Both composables accept the same options. Options on `update()`, `patch()`, and `reset()` override the composable options for that call.
+Equal parsed values retain their computed identity where the parser equality contract permits it. The default comparison supports primitives, `NaN`, `Date`, arrays, and plain objects. Rich values such as `Map` and `Set` need a parser `eq` function.
 
-| Option           | Default                          | Behavior                                                                                                   |
-| ---------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `history`        | `'replace'`                      | Use `'push'` to add a history entry. If any write in a committed batch requests push, the batch uses push. |
-| `debounce`       | `0`                              | Wait this many milliseconds after the latest write to the same URL key. State changes immediately.         |
-| `clearOnDefault` | Matcher setting, normally `true` | Omit a value equal to the default from the URL. Set false to write the default explicitly.                 |
+A retained inactive binding reads schema defaults. Writes through it reject without navigating.
 
-`debounce` must be finite and non-negative. Negative values, `NaN`, and `Infinity` are rejected. An explicit `debounce: 0` removes the composable's debounce for that call.
+## Options and scheduling
 
-Eligible writes in one event-loop tick share a navigation. Each key has its own debounce. An immediate page write does not wait for a delayed search edit or commit it early. A new write to the same key restarts its debounce and replaces its queued value. The latest write supplies serialization options, including `clearOnDefault`.
+Call options override composable options.
 
-`patch()` schedules its supplied values as one atomic group with one deadline. Overlapping queued groups merge and use the latest required deadline. Each key retains the deadline of its latest write. Replacing all delayed keys with immediate writes makes the group eligible immediately. Unrelated groups keep their own deadlines.
+| Option           | Default                          | Behavior                                           |
+| ---------------- | -------------------------------- | -------------------------------------------------- |
+| `history`        | `'replace'`                      | Use `'push'` to add a history entry.               |
+| `debounce`       | `0`                              | Wait after the latest write to this key.           |
+| `throttle`       | Browser safety interval          | Increase the minimum interval between URL batches. |
+| `clearOnDefault` | Matcher setting, normally `true` | Omit values equal to the schema default.           |
 
-Writes received during navigation wait for that navigation to settle and form a later batch. An older batch cannot clear a newer optimistic value.
+Delays must be finite and non-negative. `Infinity` is not a manual-commit mode. `debounce: 0` bypasses debounce, not the shared browser safety interval.
 
-Query writes use the app's normal `scrollBehavior`. To skip query-only scrolling, compare `to.path` with `from.path` in that callback. There is no query-state scroll option, throttle, or public `flush()`.
+The safety interval follows nuqs v2.10.2. It is 50 ms normally, 120 ms for detected Safari 17 or later, and 320 ms for older Safari or detection fallback. These are library defaults, not browser guarantees. A lower `throttle` cannot bypass the interval.
 
-State is shared per router. Two components that bind the same route and param see the same optimistic value before the URL changes. Reads use parsed `route.params` with a shared optimistic overlay. The default structural comparison supports primitives, `NaN`, `Date`, arrays, and plain objects. Values that contain `Map`, `Set`, typed arrays, or other rich types need a parser `eq` function. Equal values keep stable computed identities.
+The first ready batch does not wait an extra interval. Later intervals start when the previous query-state navigation settles, rather than at URL dispatch as in nuqs. This prevents a slow guard followed by a fast navigation from producing adjacent history writes.
 
-A partial update keeps the current path, hash, and unrelated raw query keys, including declared fields that were not written. Updated fields are serialized through their route matchers, including clear-on-default behavior. Changing a default changes the meaning of old links that omit that field.
+Each URL key has its own debounce. Ready keys share a throttle batch. The latest queued value wins, and superseded callers follow the replacement. The latest options replace an unfinished debounce's options. Among requests retained in a ready batch, push wins and the highest throttle interval wins.
 
-## Navigation and scope disposal
+A key that returns to debounce leaves the ready batch. Its previous options do not affect unrelated ready keys. Unlike nuqs's separate debounce and throttle queues, this queue retains only the latest not-yet-started value per key.
 
-Call these composables in component setup or an active effect scope. Scope disposal makes that binding's own queued writes eligible immediately. Other bindings keep their own debounce timing. A merged atomic group still waits for its other delayed keys. A binding does not flush a replacement write owned by another binding. This flush is internal.
+`patch()` is not a transaction. An immediate page replacement can commit while a search value from the same earlier patch remains debounced. There are no merged atomic groups.
 
-External navigation includes programmatic navigation and browser Back or Forward traversal. When external navigation begins, a route-name change cancels all queued edits for the old route. For the same route name, only edits to query keys changed by the navigation are cancelled. The comparison uses normalized raw values at each matcher's URL key in the committed route, not optimistic state or parser equality. External redirect targets also run this check.
+Batches run one at a time. Writes during a query-state navigation wait for a later batch. An older completion cannot remove a newer optimistic value. Each batch preserves the current path, hash, and unrelated raw query keys, including declared fields that were not written.
 
-Surviving edits keep their optimistic values and wait for the external navigation to settle. They then commit on top of the new route's query. Writes accepted during external navigation also wait. They survive on the same route unless a later redirect target conflicts. For example, a debounced search edit survives a sidebar link that changes `tags` but leaves the committed `q` unchanged. A link that changes `q` cancels that search edit.
+A true URL no-op resolves immediately when its keys have no pending work. No-op detection compares serialized URL values, not only parsed equality. Writing default page 1 removes an explicit `?page=1` when clear-on-default applies.
 
-Cancelled writes resolve with `{ cancelled: true }`. If a navigation conflicts with part of a queued patch, its promise resolves as cancelled, but its non-conflicting keys remain queued. If the external navigation is aborted, cancelled edits are not restored. Surviving edits commit on top of whichever route is committed. An already active query navigation settles through the normal router result or rejection.
+URL debounce does not debounce a fetch that watches optimistic state. Debounce that fetch separately or watch committed `route.params`.
 
-A guard can start a child `router.push()` or `router.replace()` before its first `await`, then await that navigation. Navigation origin is scoped to the synchronous guard invocation. If a guard first awaits other work, return a redirect location afterward instead of starting and awaiting a child navigation.
+## Defaults and removal
 
-`pending` describes query-state writes, not data-loader activity. Use [`useIsDataLoading()`](../data-loaders/) for the global loading state of navigation data loaders. Query-state navigation still runs guards and data loaders. There is no shallow-routing mode.
+Reading a default never writes it to the URL.
 
-A client fetch keyed on optimistic state can run on every keystroke, even when URL writes are debounced. Debounce the returned state used by the fetch, or key the fetch on committed `route.params`.
+`reset()` restores the default and follows `clearOnDefault`. With `clearOnDefault: false`, it can write the default explicitly. Reset removes an optional key that has no default.
+
+`clear()` removes the URL key even with `clearOnDefault: false`. Optimistic state becomes the matcher's value for an absent key. This includes defaults and array absence rules. Clearing or resetting a required key without a default rejects.
+
+Omitted patch fields are unchanged. Explicit `undefined` fields are also unchanged. Use `clear()` for removal. `null` is parser data where supported, not a universal removal marker.
+
+Before enqueueing a multi-key call, the engine prepares every supplied value. A serialization error rejects without a partial enqueue. Accepted serialized values are retained until commit, so later input mutation cannot change their URL output. URL parsing still follows the matcher's existing fallback rules. Setters do not parse a serialized round trip as validation.
+
+## Results and errors
+
+Methods return `Promise<QueryStateResult>`:
+
+```ts
+import { isNavigationFailure } from 'vue-router'
+import type { QueryStateResult } from 'vue-router/experimental'
+
+async function applyFilters() {
+  try {
+    const result: QueryStateResult = await patch({ page: 1, tags: ['vue'] })
+    if (isNavigationFailure(result)) {
+      // Navigation was aborted, cancelled, or duplicated.
+    } else if (result && 'cancelled' in result) {
+      // Queued work was dropped before navigation.
+    }
+  } catch (error) {
+    // Handle unexpected serialization or navigation errors.
+  }
+}
+```
+
+`QueryStateResult` is `void | NavigationFailure | { readonly cancelled: true }`. A call waits until all covered key generations finish, including replacements. A multi-key call can span several batches.
+
+Results use this precedence:
+
+1. Reject for an unexpected error. If several keys throw, use the first in the call's key order.
+2. Return the first `NavigationFailure` in that key order.
+3. Return `{ cancelled: true }` if any covered queued work was dropped.
+4. Otherwise resolve with `undefined`.
+
+A result never arrives while covered work can still commit. Cancellation can include keys that committed in an earlier batch. It does not roll them back. A successful redirect counts as success but can change the requested query. Read the committed route when the final URL matters.
+
+Direct assignment and `v-model` cannot return a promise. Their rejected writes use Vue's normal error handling without an unhandled rejection. Use methods when a component needs to handle errors or outcomes.
+
+`pending` covers query-state work through navigation settlement, not all data-loader activity. Use [`useIsDataLoading()`](../data-loaders/) for global loader state.
+
+## External navigation and cleanup
+
+An external navigation is any navigation not started by this queue. It cancels all queued work at start, including same-route links, resource changes with the same route name, and Back or Forward. Cancellation stays final if a guard blocks navigation. Pending edits never reapply over the destination.
+
+Writes attempted during external navigation return `{ cancelled: true }` without optimistic changes. Navigation tracking starts with the router, even before the first binding exists. An older unresolved external navigation does not block writes after a newer navigation settles.
+
+External navigation also removes active optimistic values from reads. Their methods and `pending` still wait for the active navigation's actual result or rejection. A redirect to a different location cancels newer queued work from the old location. Explicit `router.push()` or `router.replace()` inside a guard is external, both before and after an await. Returned redirects keep normal router redirect handling.
+
+Do not await a query-state method inside a navigation guard. The method waits for navigation and can create a cycle. Return a redirect location instead. This restriction does not apply to ordinary child `router.push()` calls.
+
+Scope disposal does not flush, shorten, or cancel accepted writes. The router owns them. Router teardown cancels queued work and clears timers.
+
+## Parser and navigation limits
+
+A custom serializer must accept its parsed output. Generated types exclude incompatible keys from single bindings and reject a multi-key binding if any declared query key has an incompatible input type. This checks type compatibility, not whether a serializer is a mathematical inverse.
+
+Standard Schema transforms do not provide an inverse serializer. The router's fallback stringifies values. Use an explicit parser `set` function when stringification cannot represent the parsed value. Nuqs also defaults to `String` when no serializer is supplied. Neither API infers inverse transformations.
+
+Only `MatcherPatternQueryParam` matchers are supported, not arbitrary aggregate query matchers. There is no shallow mode, public `flush()`, or Nuxt adapter.
+
+Every batch uses ordinary navigation. Query-only updates do not run `beforeEnter` or force a cached loader to reload. The application's scroll policy can scroll on a query update. A full navigation costs more than nuqs's default shallow update.
 
 ## Server rendering
 
-Reads use the route's parsed values and defaults during SSR. Writes without a browser window or inside Vue's SSR context are no-ops. Their promises resolve without changing the request URL, leaving pending state, or creating timers. This includes SSR with `createMemoryHistory()`. Memory history alone does not identify SSR because client applications can also use it. Create a separate router for each request.
+Reads work during SSR. Writes without a browser window or within Vue's SSR context are no-ops. They resolve immediately without timers, pending state, or URL changes. This includes server rendering with memory history. Memory history alone does not identify SSR because client applications can also use it. Create a separate router for each server request.
 
 ## JSON validation
 
-`defineJsonParser()` passes parsed JSON to its validator. Return the accepted value, including `null`, to keep it. Return `undefined` for invalid input so the query matcher's default applies.
+`defineJsonParser()` gives parsed JSON to its validator. Return the accepted value, including `null`, to keep it. Return `undefined` for invalid input so the matcher's default applies.
 
-```ts
-import { defineJsonParser } from 'vue-router/experimental'
-
-const nullableNumber = defineJsonParser(value =>
-  value === null || (typeof value === 'number' && Number.isFinite(value))
-    ? value
-    : undefined
-)
-```
-
-JSON parsing alone does not validate application data. For example, JSON text `1e999` parses as `Infinity`. Validate finite numbers and each required field. JSON text `null` is distinct from an absent or bare query key. See [parser edge cases](./param-parsers.md#query-value-edge-cases).
-
-## Current limits
-
-- Updating an inactive route is rejected. A retained binding reads its matcher defaults while inactive. Passing a parent route name while a child route is active is not supported.
-- Query state requires `MatcherPatternQueryParam` matchers, including query matchers inherited from parent records. Arbitrary custom `MatcherPatternQuery` implementations are not supported.
-- There is no Nuxt adapter or new macro API.
+JSON parsing does not validate application data. For example, JSON text `1e999` parses as `Infinity`. Validate finite numbers and required fields. JSON text `null` differs from an absent or bare query key. See [parser edge cases](./param-parsers.md#query-value-edge-cases).

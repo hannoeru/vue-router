@@ -656,7 +656,7 @@ export interface EXPERIMENTAL_Router
   _afterQueryStateNavigation?: () => void
 
   /** @internal */
-  readonly _pendingQueryStateNavigations: number
+  readonly _hasExternalQueryStateNavigation: boolean
 
   /** @internal */
   _withQueryStateNavigation<T>(origin: symbol | undefined, fn: () => T): T
@@ -795,13 +795,15 @@ export function experimental_createRouter(
   }
 
   let invocationOrigin: symbol | undefined
-  let pendingQueryStateNavigations = 0
+  let queryStateNavigation: { origin?: symbol } | undefined
 
   function beginQueryStateNavigation(to: RouteLocation, origin?: symbol) {
-    pendingQueryStateNavigations++
+    const navigation = { origin }
+    queryStateNavigation = navigation
     router._beforeQueryStateNavigation?.(to, origin)
     return () => {
-      pendingQueryStateNavigations--
+      if (queryStateNavigation !== navigation) return
+      queryStateNavigation = undefined
       router._afterQueryStateNavigation?.()
     }
   }
@@ -918,9 +920,7 @@ export function experimental_createRouter(
       )
     }
 
-    return (
-      failure ? Promise.resolve(failure) : navigate(toLocation, from, origin)
-    )
+    return (failure ? Promise.resolve(failure) : navigate(toLocation, from))
       .catch((error: NavigationFailure | NavigationRedirectError) =>
         isNavigationFailure(error)
           ? // navigation redirects still mark the router as ready
@@ -1025,21 +1025,11 @@ export function experimental_createRouter(
 
   function navigate(
     to: RouteLocationNormalized,
-    from: RouteLocationNormalizedLoaded,
-    origin?: symbol
+    from: RouteLocationNormalizedLoaded
   ): Promise<any> {
     let guards: Lazy<any>[]
-    const runWithNavigationContext = <T>(fn: () => T): T =>
-      withQueryStateNavigation(origin, () => runWithContext(fn))
     const guardToPromise = (guard: NavigationGuard) =>
-      guardToPromiseFn(
-        guard,
-        to,
-        from,
-        undefined,
-        undefined,
-        runWithNavigationContext
-      )
+      guardToPromiseFn(guard, to, from)
 
     const [leavingRecords, updatingRecords, enteringRecords] =
       extractChangingRecords(to, from)
@@ -1050,7 +1040,7 @@ export function experimental_createRouter(
       'beforeRouteLeave',
       to,
       from,
-      runWithNavigationContext
+      runWithContext
     )
 
     // leavingRecords is already reversed
@@ -1088,7 +1078,7 @@ export function experimental_createRouter(
             'beforeRouteUpdate',
             to,
             from,
-            runWithNavigationContext
+            runWithContext
           )
 
           for (const record of updatingRecords) {
@@ -1132,7 +1122,7 @@ export function experimental_createRouter(
             'beforeRouteEnter',
             to,
             from,
-            runWithNavigationContext
+            runWithContext
           )
           guards.push(canceledNavigationCheck)
 
@@ -1478,8 +1468,11 @@ export function experimental_createRouter(
     currentRoute,
     listening: true,
     _withQueryStateNavigation: withQueryStateNavigation,
-    get _pendingQueryStateNavigations() {
-      return pendingQueryStateNavigations
+    get _hasExternalQueryStateNavigation() {
+      return (
+        queryStateNavigation !== undefined &&
+        queryStateNavigation.origin === undefined
+      )
     },
 
     hasRoute: name => !!resolver.getRoute(name),

@@ -25,7 +25,6 @@ it('keeps state separate from controls', () => {
   result.map(value => value)
   // @ts-expect-error: unsupported history mode
   useQueryParam('search', 'page', { history: 'append' })
-  // @ts-expect-error: throttle is not supported
   useQueryParam('search', 'page', { throttle: 100 })
   // @ts-expect-error: scroll uses the router policy
   useQueryParams('search', { scroll: false })
@@ -33,14 +32,15 @@ it('keeps state separate from controls', () => {
   useQueryParams('search', { debounce: true })
 })
 
-it('preserves parsed reads and raw writes', () => {
-  const page = null! as QueryParamState<number, number | undefined>
-  expectTypeOf(page.state).toEqualTypeOf<
-    WritableComputedRef<number, number | undefined>
-  >()
+it('uses parsed values for reads and writes', () => {
+  const page = null! as QueryParamState<number>
+  expectTypeOf(page.state).toEqualTypeOf<WritableComputedRef<number>>()
   page.state.value = 2
+  // @ts-expect-error: use clear for removal
   page.state.value = undefined
   expectTypeOf(page.update(3)).toEqualTypeOf<Promise<QueryStateResult>>()
+  expectTypeOf(page.clear()).toEqualTypeOf<Promise<QueryStateResult>>()
+  // @ts-expect-error: use clear for removal
   page.update(undefined)
   // @ts-expect-error: parsed numbers cannot be set to URL strings
   page.state.value = '2'

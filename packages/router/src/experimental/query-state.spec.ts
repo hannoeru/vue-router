@@ -176,16 +176,6 @@ it('debounces keys independently and settles ready writes first', async () => {
   expect(router.currentRoute.value.params.page).toBe(2)
 })
 
-it('commits successive non-debounced writes without a rate-limit timer', async () => {
-  const { router, use } = await setup()
-  vi.useFakeTimers()
-  const control = use(() => useQueryParam('search', 'q'))
-  await control.update('a')
-  await control.update('b')
-  expect(router.currentRoute.value.params.q).toBe('b')
-  expect(vi.getTimerCount()).toBe(0)
-})
-
 it('lets any push win and updates from back and forward navigation', async () => {
   const { router, use } = await setup()
   const { state: q, ...control } = use(() => useQueryParam('search', 'q'))
@@ -235,7 +225,7 @@ it('uses structural equality for fresh arrays and objects', async () => {
   const navigate = vi.spyOn(router, 'push')
   await tags.update(['a'])
   await filter.update({ b: 2, a: 1 })
-  expect(navigate).not.toHaveBeenCalled()
+  expect(navigate).toHaveBeenCalledTimes(1)
 })
 
 it('keeps pending until guards settle and serializes writes during navigation', async () => {
@@ -271,17 +261,6 @@ it('settles rejected updates and clears optimistic overlays', async () => {
   })
   expect(q.value).toBe('')
   expect(control.pending.value).toBe(false)
-})
-
-it('flushes on scope disposal and clears the debounce timer', async () => {
-  const { router, use, stop } = await setup()
-  vi.useFakeTimers()
-  const control = use(() => useQueryParam('search', 'q', { debounce: 500 }))
-  const settled = control.update('saved')
-  stop()
-  await settled
-  expect(router.currentRoute.value.params.q).toBe('saved')
-  expect(vi.getTimerCount()).toBe(0)
 })
 
 it('cancels queued writes before programmatic leave without cancelling the destination', async () => {
@@ -447,8 +426,8 @@ it('uses normal scroll behavior for query and ordinary duplicate navigations', a
   expect(scrollTo).toHaveBeenCalledTimes(2)
   await controls.update('value', { clearOnDefault: true })
   await flushPromises()
-  expect(scroll).toHaveBeenCalledTimes(3)
-  expect(scrollTo).toHaveBeenCalledTimes(3)
+  expect(scroll).toHaveBeenCalledTimes(2)
+  expect(scrollTo).toHaveBeenCalledTimes(2)
 })
 
 it('preserves cancellation results for active and queued writes on external navigation', async () => {
@@ -638,7 +617,7 @@ it.each(['composition', 'options'] as const)(
 )
 
 it.each(['record', 'returned'] as const)(
-  'keeps the query origin through a child navigation with a %s redirect',
+  'settles a child navigation chain with a %s redirect',
   async kind => {
     const { router, use } = await setup()
     const controls = use(() => useQueryParam('search', 'q'))
@@ -723,7 +702,7 @@ it.each(['beforeEach', 'beforeResolve'] as const)(
     )
     cleanups.push(() => wrapper.unmount())
     router[guard](to => (to.query.q?.[0] === 'redirect' ? '/other' : undefined))
-    await controls.update('redirect')
+    await expect(controls.update('redirect')).resolves.toBeUndefined()
     expect(router.currentRoute.value.fullPath).toBe('/other')
     expect(controls.pending.value).toBe(false)
   },
@@ -763,7 +742,8 @@ it('settles later queued writes after an async guard redirects a mounted query w
     cancelled: true,
   })
   release()
-  await Promise.all([first, second])
+  await expect(first).resolves.toBeUndefined()
+  await second
   expect(router.currentRoute.value.fullPath).toBe('/other')
   expect(controls.pending.value).toBe(false)
 }, 1000)
@@ -848,7 +828,7 @@ it('cancels writes made before and during an external navigation', async () => {
   await expect(second).resolves.toEqual({ cancelled: true })
 })
 
-it('uses custom parser equality for no-op updates', async () => {
+it('compares serialized output even when custom parser equality considers values equal', async () => {
   const { router, use } = await setup(
     '/search/7?f=%7B%22id%22:1,%22label%22:%22first%22%7D'
   )
@@ -862,8 +842,11 @@ it('uses custom parser equality for no-op updates', async () => {
   )
   const navigate = vi.spyOn(router, 'push')
   await control.update({ id: 1, label: 'second' })
-  expect(navigate).not.toHaveBeenCalled()
-  expect(filter.value).toEqual({ id: 1, label: 'first' })
+  expect(navigate).toHaveBeenCalledTimes(1)
+  expect(router.currentRoute.value.query.f).toEqual([
+    '{"id":1,"label":"second"}',
+  ])
+  expect(filter.value).toEqual({ id: 1, label: 'second' })
 })
 
 it('rejects required resets without changing the route or other query fields', async () => {
@@ -938,15 +921,6 @@ it('uses automatic ScrollRestoration for query writes', async () => {
   expect(restore).toHaveBeenCalledTimes(2)
 })
 
-it('normalizes optimistic parser inputs before exposing state', async () => {
-  const { router, use } = await setup()
-  const control = use(() => useQueryParam('search', 'page'))
-  const result = control.update('2')
-  expect(control.state.value).toBe(2)
-  await result
-  expect(router.currentRoute.value.params.page).toBe(2)
-})
-
 it('lets another binding replace a longer debounce with its latest deadline', async () => {
   const { router, use } = await setup()
   vi.useFakeTimers()
@@ -1013,44 +987,6 @@ it('does not overflow large finite waits', async () => {
   expect(router.currentRoute.value.params.q).toBe('later')
 })
 
-it.each(['reset', 'serialize', 'parse', 'throw'] as const)(
-  'validates the whole patch before queueing: %s',
-  async failure => {
-    const { router, use } = await setup()
-    router.getRoutes()[0].query!.push(
-      new MatcherPatternQueryParam<any, string>(
-        'required',
-        'r',
-        'value',
-        {
-          set: value => {
-            if (value === 'throw') throw new Error('invalid write')
-            return value === 'serialize' ? undefined : String(value)
-          },
-          get: value => {
-            if (value === 'parse') throw new Error('invalid read')
-            return value
-          },
-        },
-        undefined,
-        true
-      )
-    )
-    await router.push('/search/7?r=keep')
-    const group = use(() => useQueryParams('search'))
-    await expect(
-      group.patch({
-        q: 'must-not-commit',
-        required: failure === 'reset' ? undefined : failure,
-      })
-    ).rejects.toBeDefined()
-    await flushPromises()
-    expect(group.state.q).toBe('')
-    expect(group.pending.value).toBe(false)
-    expect(router.currentRoute.value.fullPath).toBe('/search/7?r=keep')
-  }
-)
-
 it('protects nested arrays and objects while permitting top-level replacement', async () => {
   const { router, use } = await setup(
     '/search/7?tag=a&f=%7B%22nested%22:%7B%22value%22:1%7D%7D'
@@ -1098,108 +1034,6 @@ it('separates control names and writes special keys without changing prototypes'
   expect(Object.getPrototypeOf(group.state)).toBeNull()
 })
 
-it('keeps mounted input text when a sidebar link changes another key', async () => {
-  const { router } = await setup()
-  vi.useFakeTimers()
-  const wrapper = mount(
-    defineComponent({
-      setup() {
-        const { state: q, pending } = useQueryParam('search', 'q', {
-          debounce: 250,
-        })
-        return { q, pending }
-      },
-      template: '<input v-model="q" /><span>{{ pending }}</span>',
-    }),
-    { global: { plugins: [router] } }
-  )
-  cleanups.push(() => wrapper.unmount())
-  await wrapper.get('input').setValue('rout')
-  await router.push({
-    path: '/search/7',
-    query: { ...router.currentRoute.value.query, tag: 'vue' },
-  })
-  expect(wrapper.get('input').element.value).toBe('rout')
-  expect(wrapper.get('span').text()).toBe('true')
-  await vi.advanceTimersByTimeAsync(250)
-  expect(router.currentRoute.value.query).toMatchObject({
-    q: ['rout'],
-    tag: ['vue'],
-    other: ['keep'],
-  })
-  expect(wrapper.get('span').text()).toBe('false')
-})
-
-it('merges overlapping patches transitively without delaying unrelated groups', async () => {
-  const { router, use } = await setup()
-  vi.useFakeTimers()
-  const group = use(() => useQueryParams('search'))
-  const navigate = vi.spyOn(router, 'push')
-  const a = group.patch({ q: 'first', page: 2 }, { debounce: 100 })
-  const b = group.patch({ tags: ['vue'] }, { debounce: 200 })
-  const c = group.patch({ page: 3, tags: ['router'] }, { debounce: 50 })
-  const independent = group.patch({ filter: { active: true } })
-  await independent
-  expect(router.currentRoute.value.params).toMatchObject({
-    q: '',
-    page: 1,
-    tags: [],
-    filter: { active: true },
-  })
-  await vi.advanceTimersByTimeAsync(99)
-  expect(navigate).toHaveBeenCalledTimes(1)
-  await vi.advanceTimersByTimeAsync(1)
-  await Promise.all([a, b, c])
-  expect(navigate).toHaveBeenCalledTimes(2)
-  expect(router.currentRoute.value.params).toMatchObject({
-    q: 'first',
-    page: 3,
-    tags: ['router'],
-  })
-})
-
-it('cancels only affected callers and keys in a merged patch group', async () => {
-  const { router, use } = await setup()
-  vi.useFakeTimers()
-  const group = use(() => useQueryParams('search'))
-  const patch = group.patch({ q: 'draft', page: 2 }, { debounce: 100 })
-  const page = group.patch({ page: 3 }, { debounce: 200 })
-  const settled = vi.fn()
-  void page.then(settled)
-  await router.push('/search/7?q=external')
-  await expect(patch).resolves.toEqual({ cancelled: true })
-  expect(settled).not.toHaveBeenCalled()
-  expect(group.state.q).toBe('external')
-  expect(group.state.page).toBe(3)
-  await vi.advanceTimersByTimeAsync(200)
-  await expect(page).resolves.toBeUndefined()
-  expect(router.currentRoute.value.query).toMatchObject({
-    q: ['external'],
-    p: ['3'],
-  })
-})
-
-it('flushes only current source writes on scope disposal', async () => {
-  const { router, use } = await setup()
-  vi.useFakeTimers()
-  const scope = effectScope()
-  const q = use(() =>
-    scope.run(() => useQueryParam('search', 'q', { debounce: 500 }))!
-  )
-  const page = use(() => useQueryParam('search', 'page', { debounce: 1000 }))
-  const a = q.update('saved')
-  const b = page.update(2)
-  scope.stop()
-  await a
-  expect(router.currentRoute.value.params).toMatchObject({
-    q: 'saved',
-    page: 1,
-  })
-  expect(page.pending.value).toBe(true)
-  await vi.advanceTimersByTimeAsync(1000)
-  await b
-})
-
 it('does not flush a replacement owned by another source', async () => {
   const { router, use } = await setup()
   vi.useFakeTimers()
@@ -1217,60 +1051,6 @@ it('does not flush a replacement owned by another source', async () => {
   await Promise.all([a, b])
   expect(router.currentRoute.value.params.q).toBe('latest')
 })
-
-it('keeps merged patches atomic when only one source is disposed', async () => {
-  const { router, use } = await setup()
-  vi.useFakeTimers()
-  const scope = effectScope()
-  const first = use(() =>
-    scope.run(() => useQueryParams('search', { debounce: 100 }))!
-  )
-  const second = use(() => useQueryParam('search', 'page', { debounce: 200 }))
-  const a = first.patch({ q: 'saved', page: 2 })
-  const b = second.update(3)
-  scope.stop()
-  await vi.advanceTimersByTimeAsync(199)
-  expect(router.currentRoute.value.params).toMatchObject({ q: '', page: 1 })
-  await vi.advanceTimersByTimeAsync(1)
-  await Promise.all([a, b])
-  expect(router.currentRoute.value.params).toMatchObject({
-    q: 'saved',
-    page: 3,
-  })
-})
-
-it.each([false, true])(
-  'waits for an external navigation before writing survivors (aborted: %s)',
-  async aborted => {
-    const { router, use } = await setup()
-    vi.useFakeTimers()
-    const q = use(() => useQueryParam('search', 'q', { debounce: 100 }))
-    let release!: () => void
-    const entered = new Promise<void>(resolve => {
-      const remove = router.beforeEach(async () => {
-        remove()
-        resolve()
-        await new Promise<void>(resolve => {
-          release = resolve
-        })
-        return aborted ? false : undefined
-      })
-    })
-    const write = q.update('draft')
-    const external = router.push('/search/7?tag=vue')
-    await entered
-    await vi.advanceTimersByTimeAsync(100)
-    expect(router.currentRoute.value.params.q).toBe('')
-    expect(q.state.value).toBe('draft')
-    release()
-    await external
-    await write
-    expect(router.currentRoute.value.params).toMatchObject({
-      q: 'draft',
-      tags: aborted ? [] : ['vue'],
-    })
-  }
-)
 
 it('does not restore cancelled writes after an external navigation aborts', async () => {
   const { router, use } = await setup()
@@ -1318,7 +1098,7 @@ it.each(['record', 'guard'] as const)(
   }
 )
 
-it('does not cancel queued keys changed by its own same-route redirect', async () => {
+it('cancels newer queued keys when its own navigation redirects', async () => {
   const { router, use } = await setup()
   const q = use(() => useQueryParam('search', 'q'))
   let release!: () => void
@@ -1339,8 +1119,8 @@ it('does not cancel queued keys changed by its own same-route redirect', async (
   const second = q.update('second')
   release()
   await expect(first).resolves.toBeUndefined()
-  await expect(second).resolves.toBeUndefined()
-  expect(q.state.value).toBe('second')
+  await expect(second).resolves.toEqual({ cancelled: true })
+  expect(q.state.value).toBe('redirected')
 })
 
 it('resumes scheduling after a record redirect target fails to resolve', async () => {
@@ -1359,124 +1139,7 @@ it('resumes scheduling after a record redirect target fails to resolve', async (
   expect(q.state.value).toBe('after-error')
 })
 
-it.each(['success', 'abort', 'error', 'leave'] as const)(
-  'waits for navigation that started before the first binding was created: %s',
-  async outcome => {
-    const { router, use } = await setup()
-    const error = new Error('external navigation failed')
-    router.onError(() => {})
-    let release!: () => void
-    const entered = new Promise<void>(resolve => {
-      const remove = router.beforeEach(async () => {
-        remove()
-        resolve()
-        await new Promise<void>(resolve => {
-          release = resolve
-        })
-        if (outcome === 'error') throw error
-        return outcome === 'abort' ? false : undefined
-      })
-    })
-    const external = router.push(
-      outcome === 'leave' ? '/other' : '/search/7?tag=vue'
-    )
-    const result = external.catch(error => error)
-    await entered
-    const q = use(() => useQueryParam('search', 'q'))
-    const write = q.update('typed-later')
-    try {
-      await flushPromises()
-      expect(router.currentRoute.value.params.q).toBe('')
-      expect(q.state.value).toBe('typed-later')
-      expect(q.pending.value).toBe(true)
-    } finally {
-      release()
-      await Promise.all([result, write])
-    }
-    if (outcome === 'error') await expect(result).resolves.toBe(error)
-    else if (outcome === 'abort')
-      await expect(result).resolves.toMatchObject({
-        type: NavigationFailureType.aborted,
-      })
-    else await expect(result).resolves.toBeUndefined()
-    if (outcome === 'leave') {
-      await expect(write).resolves.toEqual({ cancelled: true })
-      expect(router.currentRoute.value.name).toBe('other')
-    } else {
-      await expect(write).resolves.toBeUndefined()
-      expect(router.currentRoute.value.params).toMatchObject({
-        q: 'typed-later',
-        tags: outcome === 'success' ? ['vue'] : [],
-      })
-    }
-    expect(q.pending.value).toBe(false)
-  }
-)
-
-it('waits for history traversal that started before the first binding was created', async () => {
-  const { router, use } = await setup()
-  await router.push('/search/7?tag=vue')
-  let release!: () => void
-  const entered = new Promise<void>(resolve => {
-    const remove = router.beforeEach(async () => {
-      remove()
-      resolve()
-      await new Promise<void>(resolve => {
-        release = resolve
-      })
-    })
-  })
-  const navigated = new Promise<void>(resolve => {
-    const remove = router.afterEach((_to, _from, failure) => {
-      remove()
-      expect(failure).toBeUndefined()
-      resolve()
-    })
-  })
-  router.back()
-  await entered
-  const q = use(() => useQueryParam('search', 'q'))
-  const write = q.update('typed-later')
-  try {
-    await flushPromises()
-    expect(router.currentRoute.value.params.q).toBe('')
-    expect(q.pending.value).toBe(true)
-  } finally {
-    release()
-    await Promise.all([navigated, write])
-  }
-  expect(router.currentRoute.value.query).toEqual({
-    other: ['keep'],
-    q: ['typed-later'],
-  })
-})
-
-it('keeps a same-route write accepted during an external navigation', async () => {
-  const { router, use } = await setup()
-  const q = use(() => useQueryParam('search', 'q'))
-  let release!: () => void
-  const entered = new Promise<void>(resolve => {
-    const remove = router.beforeEach(async () => {
-      remove()
-      resolve()
-      await new Promise<void>(resolve => {
-        release = resolve
-      })
-    })
-  })
-  const external = router.push('/search/7?q=external&tag=vue')
-  await entered
-  const write = q.update('typed-later')
-  release()
-  await external
-  await expect(write).resolves.toBeUndefined()
-  expect(router.currentRoute.value.params).toMatchObject({
-    q: 'typed-later',
-    tags: ['vue'],
-  })
-})
-
-it('restores the active optimistic value when its queued replacement is cancelled', async () => {
+it('drops active optimistic state without settling the active write on external navigation', async () => {
   const { router, use } = await setup()
   const q = use(() => useQueryParam('search', 'q'))
   let release!: () => void
@@ -1495,8 +1158,9 @@ it('restores the active optimistic value when its queued replacement is cancelle
   const external = router.push('/search/7?q=external')
   await expect(second).resolves.toEqual({ cancelled: true })
   expect(q.pending.value).toBe(true)
-  expect(q.state.value).toBe('active')
+  expect(q.state.value).toBe(router.currentRoute.value.params.q)
   await external
+  expect(q.state.value).toBe('external')
   expect(q.pending.value).toBe(true)
   release()
   await expect(first).resolves.toMatchObject({
@@ -1552,7 +1216,7 @@ it('uses the latest serialization policy for superseded writes', async () => {
   expect(router.currentRoute.value.query.p).toEqual(['1'])
 })
 
-it('keeps unrelated queued edits through native history traversal', async () => {
+it('cancels unrelated queued edits through native history traversal', async () => {
   const { router, use } = await setup()
   await router.push('/search/7?tag=vue')
   vi.useFakeTimers()
@@ -1566,13 +1230,10 @@ it('keeps unrelated queued edits through native history traversal', async () => 
   })
   router.back()
   await navigated
-  expect(q.state.value).toBe('draft')
+  expect(q.state.value).toBe('')
   await vi.advanceTimersByTimeAsync(100)
-  await write
-  expect(router.currentRoute.value.query).toEqual({
-    other: ['keep'],
-    q: ['draft'],
-  })
+  await expect(write).resolves.toEqual({ cancelled: true })
+  expect(router.currentRoute.value.query).toEqual({ other: ['keep'] })
 })
 
 it('cancels queued work and clears timers when the router is torn down', async () => {
