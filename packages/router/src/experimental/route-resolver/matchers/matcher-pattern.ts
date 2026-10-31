@@ -204,7 +204,9 @@ export class MatcherPatternPathDynamic<
     if (!match) {
       miss()
     }
-    const params = {} as ExtractParamTypeFromOptions<TParamsOptions>
+    const params = Object.create(
+      null
+    ) as ExtractParamTypeFromOptions<TParamsOptions>
     for (var i = 0; i < this.paramsKeys.length; i++) {
       // var for performance in for loop
       var paramName = this.paramsKeys[i]
@@ -217,7 +219,9 @@ export class MatcherPatternPathDynamic<
 
       // we intentionally pass null and empty arrays to the parser
       // so they can better control the outcome
-      params[paramName] = (parser?.get || identityFn)(value)
+      const parsed = (parser?.get || identityFn)(value)
+      if (parsed === undefined && currentMatch !== null) miss()
+      params[paramName] = parsed
     }
 
     if (
@@ -255,7 +259,9 @@ export class MatcherPatternPathDynamic<
           } else if (typeof part === 'number') {
             paramName = this.paramsKeys[paramIndex++]
             ;[parser /* repeatable */, , optional] = this.params[paramName]
-            value = (parser?.set || identityFn)(params[paramName])
+            value = (parser?.set || identityFn)(
+              Object.hasOwn(params, paramName) ? params[paramName] : undefined
+            )
 
             if (__DEV__ && optional && Object.hasOwn(params, paramName)) {
               warnLegacyOptionalParam(
@@ -284,7 +290,11 @@ export class MatcherPatternPathDynamic<
 
                 paramName = this.paramsKeys[paramIndex++]
                 ;[parser /* repeatable */, , optional] = this.params[paramName]
-                value = (parser?.set || identityFn)(params[paramName])
+                value = (parser?.set || identityFn)(
+                  Object.hasOwn(params, paramName)
+                    ? params[paramName]
+                    : undefined
+                )
 
                 if (__DEV__ && optional && Object.hasOwn(params, paramName)) {
                   warnLegacyOptionalParam(

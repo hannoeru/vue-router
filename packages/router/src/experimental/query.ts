@@ -80,8 +80,8 @@ export function experimental_normalizeQuery(
 ): LocationQuery {
   const normalizedQuery: LocationQuery = Object.create(null)
 
-  for (const key in query) {
-    const value = query[key]
+  for (const key of Object.keys(query ?? {})) {
+    const value = query![key]
     if (value !== undefined) {
       normalizedQuery[key] = (isArray(value) ? value : [value]).map(v =>
         v == null ? null : '' + v
@@ -100,8 +100,8 @@ export function experimental_normalizeQuery(
  * @param query - raw query passed by the user
  */
 export function warnNonArrayQueryValues(query: LocationQueryRaw | undefined) {
-  for (const key in query) {
-    const value = query[key]
+  for (const key of Object.keys(query ?? {})) {
+    const value = query![key]
     if (value !== undefined && !isArray(value)) {
       diagnostics.VUE_ROUTER_D0002({ key, value: JSON.stringify(value) })
     }

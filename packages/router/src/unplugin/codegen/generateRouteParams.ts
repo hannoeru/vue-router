@@ -173,14 +173,23 @@ export function EXPERIMENTAL_generateRouteParams(
             param.parser && paramParsersMap?.get(param.parser)?.isRaw
           )
 
+          const hasArrayOutput =
+            !!param.parser &&
+            paramParsersMap?.get(param.parser)?.outputShape === 'array'
+
           let extractedType: string
 
           if (type?.startsWith('Param_')) {
             extractedType = isRawParser
               ? `${type} /* raw param parser */`
-              : isRepeatable
-                ? `Extract<${type}, unknown[]>`
-                : `Exclude<${type}, unknown[] | null>`
+              : hasArrayOutput
+                ? param.type === 'query' &&
+                  (param.required || hasTreeParamDefault(param))
+                  ? `Exclude<${type}, undefined>`
+                  : type
+                : isRepeatable
+                  ? `Extract<${type}, unknown[]>`
+                  : `Exclude<${type}, unknown[] | null>`
           } else {
             extractedType = `${type ?? 'string'}${isRepeatable ? '[]' : ''}`
           }

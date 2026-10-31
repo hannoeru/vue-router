@@ -5,8 +5,25 @@ import {
 } from './matcher-pattern'
 import { MatcherPatternPathStar } from './matcher-pattern-path-star'
 import { miss } from './errors'
-import { defineParamParserRaw } from './param-parsers'
+import {
+  defineParamParserRaw,
+  PARAM_PARSER_INT,
+  PARAM_PARSER_FLOAT,
+} from './param-parsers'
 import { mockWarn } from '../../../../__tests__/vitest-mock-warn'
+
+it.each([PARAM_PARSER_INT, PARAM_PARSER_FLOAT])(
+  'rejects invalid parsed path values',
+  parser => {
+    const pattern = new MatcherPatternPathDynamic(
+      /^\/item\/([^/]+)$/,
+      { id: [parser] },
+      ['item', 1]
+    )
+    expect(pattern.match('/item/2')).toEqual({ id: 2 })
+    expect(() => pattern.match('/item/invalid')).toThrow()
+  }
+)
 
 describe('MatcherPatternPathStatic', () => {
   describe('match()', () => {

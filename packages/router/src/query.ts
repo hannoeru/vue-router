@@ -94,8 +94,8 @@ export function parseQuery(search: string): LocationQuery {
  */
 export function stringifyQuery(query: LocationQueryRaw | undefined): string {
   let search = ''
-  for (let key in query) {
-    const value = query[key]
+  for (let key of Object.keys(query ?? {})) {
+    const value = query![key]
     key = encodeQueryKey(key)
     if (value == null) {
       // only null adds the value

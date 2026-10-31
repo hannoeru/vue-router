@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest'
 import {
+  addParamParserToMap,
   warnMissingParamParsers,
   collectMissingParamParsers,
   collectUsedParamParserNames,
@@ -468,6 +469,35 @@ describe('generateParamParserOptions', () => {
     expect(result).toBe('_normalized_PARAM_PARSER__uuid')
     // imports are no longer added by generateParamParserOptions for custom parsers
     // they are handled by generateNormalizedParamParsersDeclarations
+  })
+
+  it.each([
+    ['float', 'number'],
+    ['index', 'number'],
+    ['hex', 'number'],
+    ['date', 'Date'],
+    ['datetime', 'Date'],
+    ['timestamp', 'Date'],
+    ['json', 'unknown'],
+  ])('registers the native %s parser and its type', (parser, type) => {
+    const param: TreePathParam = {
+      type: 'path',
+      paramName: 'value',
+      modifier: '',
+      optional: false,
+      repeatable: false,
+      isSplat: false,
+      re: null,
+      parser,
+    }
+    const importsMap = new ImportsMap()
+    expect(generateParamParserOptions(param, importsMap, new Map())).toBe(
+      `PARAM_PARSER_${parser.toUpperCase()}`
+    )
+    expect(importsMap.toString()).toContain(
+      `import { PARAM_PARSER_${parser.toUpperCase()} } from 'vue-router/experimental'`
+    )
+    expect(generateParamsTypes([param], new Map())).toEqual([type])
   })
 
   it('generates correct import for native int parser', () => {
@@ -954,6 +984,35 @@ const parsersTest = test.extend<{ parsersDir: string }>({
     await use(dir)
     rmSync(dir, { recursive: true, force: true })
   },
+})
+
+describe('delimited array parser metadata', () => {
+  parsersTest(
+    'detects direct and aliased array parser exports',
+    async ({ parsersDir }) => {
+      for (const [declaration, imported] of [
+        [
+          'export const parser = defineArrayParser(PARAM_PARSER_INT)',
+          'defineArrayParser',
+        ],
+        [
+          'const ids = array(PARAM_PARSER_INT); export { ids as parser }',
+          'defineArrayParser as array',
+        ],
+      ]) {
+        writeFileSync(
+          join(parsersDir, 'ids.ts'),
+          `import { ${imported}, PARAM_PARSER_INT } from 'vue-router/experimental'; ${declaration}`
+        )
+        const parsers: ParamParsersMap = new Map()
+        await addParamParserToMap('ids.ts', parsersDir, parsersDir, parsers)
+        expect(parsers.get('ids')).toMatchObject({
+          isRaw: false,
+          outputShape: 'array',
+        })
+      }
+    }
+  )
 })
 
 describe('scanParamParserFiles', () => {

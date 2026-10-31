@@ -16,6 +16,7 @@ export interface RouteRecordInfo<
   // value is the default value to avoid breaking changes but it should be the
   // generic version by default instead (string | symbol)
   ChildrenNames extends string | symbol = never,
+  QueryKeys extends keyof Params & keyof ParamsRaw = never,
   // TODO: implement meta with a defineRoute macro
   // Meta extends RouteMeta = RouteMeta,
 > {
@@ -24,6 +25,7 @@ export interface RouteRecordInfo<
   paramsRaw: ParamsRaw
   params: Params
   childrenNames: ChildrenNames
+  queryKeys: QueryKeys
   // TODO: implement meta with a defineRoute macro
   // meta: Meta
 }
@@ -33,7 +35,8 @@ export type RouteRecordInfoGeneric = RouteRecordInfo<
   string,
   RouteParamsRawGeneric,
   RouteParamsGeneric,
-  string | symbol
+  string | symbol,
+  string
 >
 
 /**

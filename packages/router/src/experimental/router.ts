@@ -84,6 +84,8 @@ import type {
   ResolverLocationResolved,
 } from './route-resolver/resolver-abstract'
 import type { DataLoaderExtensions } from './data-loaders/meta-extensions'
+import type { LocationQueryRaw } from './query'
+import { shallowRouteLocations } from './shallow-route'
 import { diagnostics } from '../diagnostics'
 import type { PathParserOptions } from '../matcher'
 import type {
@@ -649,6 +651,24 @@ export interface EXPERIMENTAL_Router
    */
   readonly options: EXPERIMENTAL_RouterOptions
 
+  /** @internal */
+  _beforeQueryStateNavigation?: (to: RouteLocation, origin?: symbol) => void
+
+  /** @internal */
+  _afterQueryStateNavigation?: () => void
+
+  /** @internal */
+  readonly _hasExternalQueryStateNavigation: boolean
+
+  /** @internal */
+  _withQueryStateNavigation<T>(origin: symbol | undefined, fn: () => T): T
+
+  /** @internal */
+  _commitQueryState(query: LocationQueryRaw, history: 'push' | 'replace'): void
+
+  /** @internal */
+  _cancelQueryStateNavigation?: () => void
+
   /**
    * Dev only method to replace the resolver used by the router. Used during HMR
    *
@@ -714,7 +734,7 @@ export function experimental_createRouter(
     //   ]
     | [
         relativeLocation: ResolverLocationAsPathRelative,
-        currentLocation: ResolverLocationResolved<TRecord>,
+        currentLocation?: ResolverLocationResolved<TRecord>,
       ]
     | [
         location: ResolverLocationAsNamed,
@@ -736,9 +756,7 @@ export function experimental_createRouter(
       to,
       // FIXME: incompatible `matched` requires casting
       currentLocation ??
-        // relative string locations are always valid
-        // so this is more of a convenience default
-        (typeof to === 'string' && !to.startsWith('/')
+        (!isAbsoluteLocation(to as ResolverLocationAsRelative)
           ? currentRoute.value
           : undefined)
     )
@@ -781,10 +799,73 @@ export function experimental_createRouter(
     }
   }
 
-  const push = (...args: _resolveArgs) => pushWithRedirect(resolve(...args))
+  function commitQueryState(
+    query: LocationQueryRaw,
+    history: 'push' | 'replace'
+  ) {
+    const current = currentRoute.value
+    const resolved = resolve({ path: current.path, query, hash: current.hash })
+    if (
+      !resolved.matched.length ||
+      resolved.name !== current.name ||
+      resolved.matched.length !== current.matched.length ||
+      resolved.matched.some(
+        (record, index) => record !== current.matched[index]
+      )
+    ) {
+      throw new Error(
+        'Shallow query updates must keep the current route. Use shallow: false to navigate to another route.'
+      )
+    }
+    if (resolved.fullPath === current.fullPath) return
+    const route = {
+      ...current,
+      query: resolved.query,
+      params: resolved.params,
+      fullPath: resolved.fullPath,
+      href: resolved.href,
+    }
+    routerHistory[history](route.fullPath)
+    shallowRouteLocations.add(route)
+    currentRoute.value = route
+  }
 
-  const replace = (...args: _resolveArgs) =>
-    pushWithRedirect(resolve(...args), true)
+  let invocationOrigin: symbol | undefined
+  let queryStateNavigation: { origin?: symbol } | undefined
+
+  function beginQueryStateNavigation(to: RouteLocation, origin?: symbol) {
+    const navigation = { origin }
+    queryStateNavigation = navigation
+    router._beforeQueryStateNavigation?.(to, origin)
+    return () => {
+      if (queryStateNavigation !== navigation) return
+      queryStateNavigation = undefined
+      router._afterQueryStateNavigation?.()
+    }
+  }
+
+  function withQueryStateNavigation<T>(
+    origin: symbol | undefined,
+    fn: () => T
+  ): T {
+    const previous = invocationOrigin
+    invocationOrigin = origin
+    try {
+      return fn()
+    } finally {
+      invocationOrigin = previous
+    }
+  }
+
+  const push = (...args: _resolveArgs) => {
+    const origin = invocationOrigin
+    return pushWithRedirect(resolve(...args), undefined, undefined, origin)
+  }
+
+  const replace = (...args: _resolveArgs) => {
+    const origin = invocationOrigin
+    return pushWithRedirect(resolve(...args), true, undefined, origin)
+  }
 
   function handleRedirectRecord(
     to: RouteLocation,
@@ -813,7 +894,8 @@ export function experimental_createRouter(
   function pushWithRedirect(
     to: RouteLocationResolved,
     replace?: boolean,
-    redirectedFrom?: RouteLocation
+    redirectedFrom?: RouteLocation,
+    origin?: symbol
   ): Promise<NavigationFailure | void | undefined> {
     replace = to.replace ?? replace
     pendingLocation = to
@@ -822,22 +904,29 @@ export function experimental_createRouter(
     const force: boolean | undefined = (to as RouteLocationOptions).force
 
     const shouldRedirect = handleRedirectRecord(to, from)
+    const finishQueryState = beginQueryStateNavigation(to, origin)
 
     if (shouldRedirect) {
-      return pushWithRedirect(
-        {
-          // @ts-expect-error: FIXME: refactor location types
-          ...resolve(shouldRedirect),
-          state:
-            typeof shouldRedirect === 'object'
-              ? assign({}, data, shouldRedirect.state)
-              : data,
-          force,
-        },
-        replace,
-        // keep original redirectedFrom if it exists
-        redirectedFrom || to
-      )
+      try {
+        return pushWithRedirect(
+          {
+            // @ts-expect-error: FIXME: refactor location types
+            ...resolve(shouldRedirect),
+            state:
+              typeof shouldRedirect === 'object'
+                ? assign({}, data, shouldRedirect.state)
+                : data,
+            force,
+          },
+          replace,
+          // keep original redirectedFrom if it exists
+          redirectedFrom || to,
+          origin
+        ).finally(finishQueryState)
+      } catch (error) {
+        finishQueryState()
+        throw error
+      }
     }
 
     // if it was a redirect we already called `pushWithRedirect` above
@@ -926,7 +1015,8 @@ export function experimental_createRouter(
               // preserve an existing replacement but allow the redirect to override it
               replace,
               // preserve the original redirectedFrom if any
-              redirectedFrom || toLocation
+              redirectedFrom || toLocation,
+              origin
             )
           }
         } else {
@@ -946,6 +1036,7 @@ export function experimental_createRouter(
         )
         return failure
       })
+      .finally(finishQueryState)
   }
 
   /**
@@ -973,6 +1064,8 @@ export function experimental_createRouter(
     from: RouteLocationNormalizedLoaded
   ): Promise<any> {
     let guards: Lazy<any>[]
+    const guardToPromise = (guard: NavigationGuard) =>
+      guardToPromiseFn(guard, to, from)
 
     const [leavingRecords, updatingRecords, enteringRecords] =
       extractChangingRecords(to, from)
@@ -982,13 +1075,14 @@ export function experimental_createRouter(
       leavingRecords.reverse(),
       'beforeRouteLeave',
       to,
-      from
+      from,
+      runWithContext
     )
 
     // leavingRecords is already reversed
     for (const record of leavingRecords) {
       record.leaveGuards.forEach(guard => {
-        guards.push(guardToPromiseFn(guard, to, from))
+        guards.push(guardToPromise(guard))
       })
     }
 
@@ -1007,7 +1101,7 @@ export function experimental_createRouter(
           // check global guards beforeEach
           guards = []
           for (const guard of beforeGuards.list()) {
-            guards.push(guardToPromiseFn(guard, to, from))
+            guards.push(guardToPromise(guard))
           }
           guards.push(canceledNavigationCheck)
 
@@ -1019,12 +1113,13 @@ export function experimental_createRouter(
             updatingRecords,
             'beforeRouteUpdate',
             to,
-            from
+            from,
+            runWithContext
           )
 
           for (const record of updatingRecords) {
             record.updateGuards.forEach(guard => {
-              guards.push(guardToPromiseFn(guard, to, from))
+              guards.push(guardToPromise(guard))
             })
           }
           guards.push(canceledNavigationCheck)
@@ -1040,9 +1135,9 @@ export function experimental_createRouter(
             if (record.beforeEnter) {
               if (isArray(record.beforeEnter)) {
                 for (const beforeEnter of record.beforeEnter)
-                  guards.push(guardToPromiseFn(beforeEnter, to, from))
+                  guards.push(guardToPromise(beforeEnter))
               } else {
-                guards.push(guardToPromiseFn(record.beforeEnter, to, from))
+                guards.push(guardToPromise(record.beforeEnter))
               }
             }
           }
@@ -1074,7 +1169,7 @@ export function experimental_createRouter(
           // check global guards beforeResolve
           guards = []
           for (const guard of beforeResolveGuards.list()) {
-            guards.push(guardToPromiseFn(guard, to, from))
+            guards.push(guardToPromise(guard))
           }
           guards.push(canceledNavigationCheck)
 
@@ -1163,16 +1258,24 @@ export function experimental_createRouter(
         toLocation,
         router.currentRoute.value
       )
+      const finishQueryState = beginQueryStateNavigation(toLocation)
       if (shouldRedirect) {
-        pushWithRedirect(
-          assign(
-            // @ts-expect-error: FIXME: refactor location types
-            resolve(shouldRedirect),
-            { force: true }
-          ),
-          true,
-          toLocation
-        ).catch(noop)
+        try {
+          pushWithRedirect(
+            assign(
+              // @ts-expect-error: FIXME: refactor location types
+              resolve(shouldRedirect),
+              { force: true }
+            ),
+            true,
+            toLocation
+          )
+            .finally(finishQueryState)
+            .catch(noop)
+        } catch (error) {
+          finishQueryState()
+          throw error
+        }
         return
       }
 
@@ -1208,45 +1311,46 @@ export function experimental_createRouter(
 
             // the error is already handled by router.push we just want to avoid
             // logging the error
-            pushWithRedirect(
-              assign(
-                resolve(
-                  // @ts-expect-error: FIXME: refactor location types
-                  (error as NavigationRedirectError).to,
-                  isAbsoluteLocation(
-                    // @ts-expect-error: FIXME: refactor location types to stricter
-                    (error as NavigationRedirectError).to
-                  )
-                    ? undefined
-                    : toLocation
+            return (
+              pushWithRedirect(
+                assign(
+                  resolve(
+                    // @ts-expect-error: FIXME: refactor location types
+                    (error as NavigationRedirectError).to,
+                    isAbsoluteLocation(
+                      // @ts-expect-error: FIXME: refactor location types to stricter
+                      (error as NavigationRedirectError).to
+                    )
+                      ? undefined
+                      : toLocation
+                  ),
+                  {
+                    force: true,
+                  }
                 ),
-                {
-                  force: true,
-                }
-              ),
-              undefined,
-              toLocation
-              // avoid an uncaught rejection, let push call triggerError
+                undefined,
+                toLocation
+                // avoid an uncaught rejection, let push call triggerError
+              )
+                .then(failure => {
+                  // manual change in hash history #916 ending up in the URL not
+                  // changing, but it was changed by the manual url change, so we
+                  // need to manually change it ourselves
+                  if (
+                    isNavigationFailure(
+                      failure,
+                      ErrorTypes.NAVIGATION_ABORTED |
+                        ErrorTypes.NAVIGATION_DUPLICATED
+                    ) &&
+                    !info.delta &&
+                    info.type === NavigationType.pop
+                  ) {
+                    routerHistory.go(-1, false)
+                  }
+                })
+                // avoid the then branch
+                .then(() => Promise.reject())
             )
-              .then(failure => {
-                // manual change in hash history #916 ending up in the URL not
-                // changing, but it was changed by the manual url change, so we
-                // need to manually change it ourselves
-                if (
-                  isNavigationFailure(
-                    failure,
-                    ErrorTypes.NAVIGATION_ABORTED |
-                      ErrorTypes.NAVIGATION_DUPLICATED
-                  ) &&
-                  !info.delta &&
-                  info.type === NavigationType.pop
-                ) {
-                  routerHistory.go(-1, false)
-                }
-              })
-              .catch(noop)
-            // avoid the then branch
-            return Promise.reject()
           }
           // do not restore history on unknown direction
           if (info.delta) {
@@ -1293,6 +1397,7 @@ export function experimental_createRouter(
             failure
           )
         })
+        .finally(finishQueryState)
         // avoid warnings in the console about uncaught rejections, they are logged by triggerErrors
         .catch(noop)
     })
@@ -1388,7 +1493,9 @@ export function experimental_createRouter(
     )
   }
 
-  const go = (delta: number) => routerHistory.go(delta)
+  const go = (delta: number) => {
+    routerHistory.go(delta)
+  }
 
   let started: boolean | undefined
   const installedApps = new Set<App>()
@@ -1396,6 +1503,14 @@ export function experimental_createRouter(
   const router: EXPERIMENTAL_Router = {
     currentRoute,
     listening: true,
+    _commitQueryState: commitQueryState,
+    _withQueryStateNavigation: withQueryStateNavigation,
+    get _hasExternalQueryStateNavigation() {
+      return (
+        queryStateNavigation !== undefined &&
+        queryStateNavigation.origin === undefined
+      )
+    },
 
     hasRoute: name => !!resolver.getRoute(name),
     getRoutes: () => resolver.getRoutes(),
@@ -1457,6 +1572,7 @@ export function experimental_createRouter(
         installedApps.delete(app)
         // the router is not attached to an app anymore
         if (installedApps.size < 1) {
+          router._cancelQueryStateNavigation?.()
           // invalidate the current navigation
           pendingLocation = START_LOCATION_NORMALIZED
           removeHistoryListener && removeHistoryListener()

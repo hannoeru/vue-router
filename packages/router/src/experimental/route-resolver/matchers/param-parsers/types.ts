@@ -32,7 +32,15 @@ export interface ParamParser<
 > {
   get?: (value: NoInfer<TUrlParam>) => TParam
   set?: (value: TParamRaw) => TUrlParam
+  eq?: (a: TParam, b: TParam) => boolean
 }
+
+export type ParamParserWithGetSet<
+  TParam,
+  TUrlParam,
+  TParamRaw = TParam,
+> = ParamParser<TParam, TUrlParam, TParamRaw> &
+  Required<Pick<ParamParser<TParam, TUrlParam, TParamRaw>, 'get' | 'set'>>
 
 /**
  * Generic type for a param parser that can handle both single and repeatable params.

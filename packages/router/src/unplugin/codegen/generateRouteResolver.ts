@@ -415,18 +415,24 @@ ${queryParams
       toStringLiteral(format),
     ]
 
-    if (parserOptions || param.defaultValue !== undefined || param.required) {
+    const keepDefault = param.clearOnDefault === false
+    if (
+      parserOptions ||
+      param.defaultValue !== undefined ||
+      param.required ||
+      keepDefault
+    ) {
       args.push(parserOptions || '{}')
     }
 
-    if (param.defaultValue !== undefined || param.required) {
+    if (param.defaultValue !== undefined || param.required || keepDefault) {
       args.push(param.defaultValue || 'undefined')
     }
 
-    // we can strip any non true value to save bytes
-    if (param.required) {
-      args.push(String(param.required))
+    if (param.required || keepDefault) {
+      args.push(String(!!param.required))
     }
+    if (keepDefault) args.push('false')
 
     return `    ${invalidFormatWarn || ''}new MatcherPatternQueryParam(${args.join(', ')})`
   })

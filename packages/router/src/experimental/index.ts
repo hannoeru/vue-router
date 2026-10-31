@@ -56,6 +56,16 @@ export {
 export {
   PARAM_PARSER_INT,
   PARAM_PARSER_BOOL,
+  PARAM_PARSER_FLOAT,
+  PARAM_PARSER_INDEX,
+  PARAM_PARSER_HEX,
+  PARAM_PARSER_DATE,
+  PARAM_PARSER_DATETIME,
+  PARAM_PARSER_TIMESTAMP,
+  PARAM_PARSER_JSON,
+  defineEnumParser,
+  defineArrayParser,
+  defineJsonParser,
   type ParamParser,
   defineParamParser,
   defineHashParamParser,
@@ -63,6 +73,16 @@ export {
 } from './route-resolver/matchers/param-parsers'
 
 export { miss } from './route-resolver/matchers/errors'
+
+export {
+  useQueryParam,
+  useQueryParams,
+  type QueryStateOptions,
+  type QueryStateResult,
+  type QueryParamControls,
+  type QueryParamState,
+  type QueryParamsState,
+} from './query-state'
 
 // Runtime exports (definePage macro)
 export {

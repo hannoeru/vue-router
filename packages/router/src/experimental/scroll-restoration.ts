@@ -21,6 +21,7 @@ import type { Router } from '../router'
 import { noop, toValueWithArgs } from '../utils'
 import type { EXPERIMENTAL_Router } from './router'
 import { onRouteRendered } from './on-route-rendered'
+import { shallowRouteLocations } from './shallow-route'
 
 /**
  * Saved position for one property of {@link ScrollRestorationSessionEntry}.
@@ -540,6 +541,7 @@ function useScrollRestorationClient<
 
   onRouteRendered(to => {
     if (
+      !shallowRouteLocations.has(to) &&
       !toValue(optionsWithDefaults.manual) &&
       isActive(optionsWithDefaults, to)
     ) {

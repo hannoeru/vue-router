@@ -141,6 +141,7 @@
     "ast-walker-scope": "^0.10.0",
     "chokidar": "^5.0.0",
     "confbox": "^0.3.1",
+    "dequal": "^2.0.3",
     "local-pkg": "^1.2.1",
     "magic-string": "^1.4.3",
     "mlly": "^1.8.2",

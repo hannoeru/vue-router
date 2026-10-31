@@ -1,58 +1,26 @@
-import { miss } from '../errors'
-// import { defineParamParser } from './define-param-parser'
 import type { ParamParser } from './types'
-
-// NOTE: wondering if we should simplify booleans to just use defineParamParser2
-// export const ppp = defineParamParser<boolean>({
-//   get: value =>
-//     value === 'true'
-//       ? true
-//       : value === 'false'
-//         ? false
-//         : miss(`Invalid boolean value: "${value}"`),
-//   set: value => String(value),
-// })
 
 const PARAM_BOOLEAN_SINGLE = {
   get: (value: string | null | undefined) => {
-    // we want to differentiate between the absence of a value
     if (value === undefined) return undefined
-    // and the empty value (?a&b)
-    if (value == null) return true
-
+    if (value === null) return true
     const lowercaseValue = value.toLowerCase()
-
-    if (lowercaseValue === 'true') {
-      return true
-    }
-
-    if (lowercaseValue === 'false') {
-      return false
-    }
-
-    miss()
+    if (lowercaseValue === 'true') return true
+    if (lowercaseValue === 'false') return false
+    return undefined
   },
   set: (value: boolean | null | undefined) =>
     value == null ? value : String(value),
 } satisfies ParamParser<boolean | null | undefined, string | null | undefined>
 
 const PARAM_BOOLEAN_REPEATABLE = {
-  get: (value: (string | null)[]) =>
-    value.map(v => {
-      const result = PARAM_BOOLEAN_SINGLE.get(v)
-      // Filter out undefined values to ensure arrays only contain booleans
-      return result === undefined ? false : result
-    }),
-  set: (value: boolean[]) =>
-    // since v is always a boolean, set always returns a string
-    value.map(v => PARAM_BOOLEAN_SINGLE.set(v) as string),
-} satisfies ParamParser<boolean[], (string | null)[]>
+  get: (value: (string | null)[]) => {
+    const parsed = value.map(PARAM_BOOLEAN_SINGLE.get)
+    return parsed.every(v => v !== undefined) ? parsed : undefined
+  },
+  set: (value: boolean[]) => value.map(String),
+} satisfies ParamParser<boolean[] | undefined, (string | null)[], boolean[]>
 
-/**
- * Native Param parser for booleans.
- *
- * @internal
- */
 export const PARAM_PARSER_BOOL = {
   get: value =>
     Array.isArray(value)

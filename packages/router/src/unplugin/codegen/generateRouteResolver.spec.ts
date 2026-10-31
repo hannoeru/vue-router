@@ -31,6 +31,43 @@ describe('generateRouteRecordQuery', () => {
     importsMap = new ImportsMap()
   })
 
+  it('keeps value URL format for delimited array output', () => {
+    const node = new PrefixTree(DEFAULT_OPTIONS).insert('search', 'search.vue')
+    node.value.setEditOverride('params', {
+      query: { ids: { parser: 'ids', format: 'value' } },
+    })
+    const parsers: ParamParsersMap = new Map([
+      [
+        'ids',
+        {
+          name: 'ids',
+          typeName: 'Param_ids',
+          relativePath: 'ids.ts',
+          absolutePath: '/ids.ts',
+          isRaw: false,
+          outputShape: 'array',
+        },
+      ],
+    ])
+    expect(
+      generateRouteRecordQuery({ importsMap, node, paramParsersMap: parsers })
+    ).toContain(
+      "new MatcherPatternQueryParam('ids', 'ids', 'value', _normalized_PARAM_PARSER__ids)"
+    )
+  })
+
+  it('generates clearOnDefault opt-out', () => {
+    const node = new PrefixTree(DEFAULT_OPTIONS).insert('search', 'search.vue')
+    node.value.setEditOverride('params', {
+      query: { page: { parser: 'int', default: '1', clearOnDefault: false } },
+    })
+    expect(
+      generateRouteRecordQuery({ importsMap, node, paramParsersMap: new Map() })
+    ).toContain(
+      "new MatcherPatternQueryParam('page', 'page', 'value', PARAM_PARSER_INT, 1, false, false)"
+    )
+  })
+
   it('returns empty string for non-matchable nodes without query params', () => {
     const tree = new PrefixTree(DEFAULT_OPTIONS)
     const node = tree.insert('a/b', 'a/b.vue').parent! // non-matchable parent

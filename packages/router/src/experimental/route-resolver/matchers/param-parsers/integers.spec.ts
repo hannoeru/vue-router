@@ -36,31 +36,24 @@ describe('PARAM_PARSER_INT', () => {
       expect(PARAM_PARSER_INT.get(null)).toBe(null)
     })
 
-    it('throws for decimal numbers', () => {
-      expect(() => PARAM_PARSER_INT.get('1.5')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('3.14159')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('0.1')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('-2.5')).toThrow()
-    })
-
-    it('throws for scientific notation that results in decimals', () => {
-      expect(() => PARAM_PARSER_INT.get('1e-1')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('1e-2')).toThrow()
-    })
-
-    it('throws for non-numeric strings', () => {
-      expect(() => PARAM_PARSER_INT.get('abc')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('12abc')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('abc12')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('true')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('false')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('NaN')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('Infinity')).toThrow()
-      expect(() => PARAM_PARSER_INT.get('-Infinity')).toThrow()
-    })
-
-    it('throws for empty strings', () => {
-      expect(() => PARAM_PARSER_INT.get('')).toThrow()
+    it.each([
+      '1.5',
+      '3.14159',
+      '0.1',
+      '-2.5',
+      '1e-1',
+      '1e-2',
+      'abc',
+      '12abc',
+      'abc12',
+      'true',
+      'false',
+      'NaN',
+      'Infinity',
+      '-Infinity',
+      '',
+    ])('returns undefined for invalid integer %j', value => {
+      expect(PARAM_PARSER_INT.get(value)).toBeUndefined()
     })
   })
 
@@ -76,20 +69,16 @@ describe('PARAM_PARSER_INT', () => {
       expect(PARAM_PARSER_INT.get([])).toEqual([])
     })
 
-    it('throws for arrays with decimal numbers', () => {
-      expect(() => PARAM_PARSER_INT.get(['42', '1.5'])).toThrow()
-      expect(() => PARAM_PARSER_INT.get(['3.14159'])).toThrow()
-    })
-
-    it('throws for arrays with non-numeric strings', () => {
-      expect(() => PARAM_PARSER_INT.get(['42', 'invalid'])).toThrow()
-      expect(() => PARAM_PARSER_INT.get(['1', '12abc'])).toThrow()
-      expect(() => PARAM_PARSER_INT.get(['true', 'false'])).toThrow()
-    })
-
-    it('throws for arrays with empty strings', () => {
-      expect(() => PARAM_PARSER_INT.get(['1', ''])).toThrow()
-      expect(() => PARAM_PARSER_INT.get(['', '2'])).toThrow()
+    it.each([
+      ['42', '1.5'],
+      ['3.14159'],
+      ['42', 'invalid'],
+      ['1', '12abc'],
+      ['true', 'false'],
+      ['1', ''],
+      ['', '2'],
+    ])('returns undefined for arrays with invalid items %j', (...values) => {
+      expect(PARAM_PARSER_INT.get(values)).toBeUndefined()
     })
 
     it('filters out null values from arrays', () => {

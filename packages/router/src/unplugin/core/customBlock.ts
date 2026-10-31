@@ -60,6 +60,7 @@ export interface CustomRouteBlockPathParamOptions {
 export interface CustomRouteBlockQueryParamOptions {
   parser?: string
   format?: DefinePageQueryParamOptions['format']
+  clearOnDefault?: boolean
   // TODO: queryKey?: string
   default?: string
   required?: boolean
@@ -67,7 +68,7 @@ export interface CustomRouteBlockQueryParamOptions {
 
 export type CustomRouteBlockHashParamOptions = Omit<
   CustomRouteBlockQueryParamOptions,
-  'format'
+  'format' | 'clearOnDefault'
 >
 
 function parseCustomBlock(

@@ -411,6 +411,17 @@ definePage({ meta: { second: true } })
     })
   })
 
+  it('extracts query default clearing options', () => {
+    const code = `<script setup>
+definePage({ params: { query: { page: { parser: 'int', default: 1, clearOnDefault: false } } } })
+</script>`
+    expect(extractDefinePageInfo(code, 'src/pages/test.vue')).toMatchObject({
+      params: {
+        query: { page: { parser: 'int', default: '1', clearOnDefault: false } },
+      },
+    })
+  })
+
   it('extracts hash parser names without retaining runtime properties', () => {
     const code = vue`
 <script setup>

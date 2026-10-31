@@ -8,6 +8,7 @@ import type {
 } from './matcher-pattern'
 import { type ParamParser, PARAM_PARSER_DEFAULTS } from './param-parsers'
 import { miss } from './errors'
+import { isSameParamValue } from '../../param-equality'
 
 /**
  * Handles the `query` part of a URL. It can transform a query object into an
@@ -25,16 +26,32 @@ export class MatcherPatternQueryParam<
   ParamName extends string,
 > implements MatcherPatternQuery<Record<ParamName, T>> {
   constructor(
-    private paramName: ParamName,
-    private queryKey: string,
-    private format: 'value' | 'array',
-    private parser: ParamParser<T> = {},
-    private defaultValue?: (() => T) | T,
-    private required?: boolean
+    public readonly paramName: ParamName,
+    public readonly queryKey: string,
+    public readonly format: 'value' | 'array',
+    public readonly parser: ParamParser<T> = {},
+    public readonly defaultValue?: (() => T) | T,
+    public readonly required?: boolean,
+    public readonly clearOnDefault = true
   ) {}
 
+  equals(a: unknown, b: unknown): boolean {
+    if (Object.is(a, b)) return true
+    if (a == null || b == null) return false
+    return (this.parser.eq ?? isSameParamValue)(a as T, b as T)
+  }
+
+  getDefaultValue(): T | undefined {
+    return toValue(this.defaultValue)
+  }
+
   match(query: MatcherQueryParams): Record<ParamName, T> {
-    const queryValue: MatcherQueryParamsValue | undefined = query[this.queryKey]
+    const queryValue: MatcherQueryParamsValue | undefined = Object.hasOwn(
+      query,
+      this.queryKey
+    )
+      ? query[this.queryKey]
+      : undefined
 
     // normalize the value coming from the query based on the expected format
     // value => keep the last value if multiple
@@ -111,10 +128,20 @@ export class MatcherPatternQueryParam<
     } as Record<ParamName, T>
   }
 
-  build(params: Record<ParamName, T>): MatcherQueryParams {
-    const paramValue = params[this.paramName]
+  build(
+    params: Record<ParamName, T>,
+    options?: { clearOnDefault?: boolean }
+  ): MatcherQueryParams {
+    const paramValue = Object.hasOwn(params, this.paramName)
+      ? params[this.paramName]
+      : undefined
 
-    if (paramValue === undefined) {
+    if (
+      paramValue === undefined ||
+      ((options?.clearOnDefault ?? this.clearOnDefault) &&
+        this.defaultValue !== undefined &&
+        this.equals(paramValue, this.getDefaultValue()))
+    ) {
       return {} as EmptyParams
     }
 
